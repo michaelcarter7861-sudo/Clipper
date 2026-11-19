@@ -1,0 +1,31 @@
+# downloaded media and renders
+out/
+work/
+.clipper-work/
+_ingest/
+*.mp4
+*.mkv
+*.webm
+*.wav
+*.ass
+*.srt
+*.vtt
+
+# secrets
+.env
+cookies.txt
+*cookies*.txt
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# tooling
+node_modules/
+.DS_Store

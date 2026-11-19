@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipper"
+version = "1.0.0"
+description = "Turn YouTube links into captioned, vertical, viral-moment clips."
+requires-python = ">=3.10"
+dependencies = ["yt-dlp>=2024.10.7"]
+
+[project.optional-dependencies]
+whisper = ["faster-whisper>=1.0.3"]
+dev = ["pytest>=8.0", "pyyaml>=6.0", "ruff>=0.6"]
+
+[project.scripts]
+clipper = "clipper.cli:main"
+
+[tool.setuptools]
+packages = ["clipper"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+markers = [
+    "ffmpeg: needs a real ffmpeg binary on PATH",
+    "claude: needs the Claude Code CLI (`claude`) installed",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# subtitle fixtures keep real (whitespace-only) WebVTT lines on purpose
+"tests/test_subtitles.py" = ["W293"]

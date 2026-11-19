@@ -1,0 +1,2 @@
+# Optional: transcribe audio when a video has no usable subtitles.
+faster-whisper>=1.0.3
