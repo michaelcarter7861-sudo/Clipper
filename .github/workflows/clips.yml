@@ -39,6 +39,10 @@ on:
         description: "Optional watermark/handle, e.g. @yourchannel (blank = none)"
         default: ""
         type: string
+      max_height:
+        description: "Highest source resolution to download (1080, 720, 480 …)"
+        default: "1080"
+        type: string
       fit:
         description: "How to fill a 9:16 frame"
         type: choice
@@ -150,6 +154,12 @@ jobs:
           CAPTION_STYLE: ${{ inputs.caption_style }}
           CLIP_EDITING: ${{ inputs.editing }}
           CLIP_WATERMARK: ${{ inputs.watermark }}
+          CLIP_MAX_VIDEO_HEIGHT: ${{ inputs.max_height }}
+          # Optional: route yt-dlp through a proxy when this runner's IP is throttled
+          YT_PROXY: ${{ secrets.YT_PROXY }}
+          CLIP_PROXY: ${{ secrets.YT_PROXY }}
+          # Optional: extra yt-dlp flags, e.g. --cookies-from-browser chrome
+          YTDLP_EXTRA_ARGS: ${{ vars.YTDLP_EXTRA_ARGS }}
           CLIP_FIT: ${{ inputs.fit }}
           CLIP_LANGUAGE: ${{ inputs.language }}
           WHISPER_MODEL: ${{ inputs.whisper_model }}
@@ -174,7 +184,7 @@ jobs:
             exit 1
           fi
           python -m clipper --doctor || true
-          python -m clipper
+          python -m clipper 2>&1 | tee /tmp/clipper.log
 
       - name: Upload clips
         if: always()
@@ -185,6 +195,56 @@ jobs:
           retention-days: 30
           compression-level: 0
           if-no-files-found: warn
+
+      - name: Run summary
+        if: always()
+        run: |
+          summary="$GITHUB_STEP_SUMMARY"
+          echo "## Clipper run" >> "$summary"
+          clips=$(find out -name 'clip-*.mp4' 2>/dev/null | wc -l | tr -d ' ')
+          echo "" >> "$summary"
+          echo "- **Clips produced:** ${clips}" >> "$summary"
+          python - <<'PY' >> "$summary"
+          import glob, json, pathlib
+
+          rows = []
+          for path in sorted(glob.glob("out/*/info.json")):
+              try:
+                  data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              formats = data.get("formats") or []
+              rows.append(
+                  (
+                      data.get("title") or path,
+                      data.get("chosen_format") or "-",
+                      formats[0]["resolution"] if formats else "-",
+                      len(formats),
+                      data.get("live_status") or "-",
+                  )
+              )
+          if rows:
+              print("")
+              print("| video | picked | best listed | formats seen | live |")
+              print("| --- | --- | --- | --- | --- |")
+              for title, chosen, best, count, live in rows:
+                  title = str(title).replace("|", "/")[:60]
+                  print(f"| {title} | {chosen} | {best} | {count} | {live} |")
+          PY
+          if [ -f /tmp/clipper.log ]; then
+            errors=$(grep -E "ERROR|Traceback" /tmp/clipper.log | tail -5 || true)
+            if [ -n "$errors" ]; then
+              {
+                echo ""
+                echo "<details><summary>Why it failed</summary>"
+                echo ""
+                echo '```'
+                echo "$errors"
+                echo '```'
+                echo "</details>"
+              } >> "$summary"
+            fi
+          fi
 
       - name: Publish clips as a GitHub Release
         if: ${{ inputs.publish_release == true }}

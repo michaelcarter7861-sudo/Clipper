@@ -52,10 +52,19 @@ def test_clip_workflow_inputs_and_contract():
     assert "ffmpeg" in runs
     assert "claude-code" in runs
 
+    assert inputs["max_height"]["default"] == "1080"
+
     cut_step = next(step for step in steps if step.get("env", {}).get("CLIP_URLS"))
     env = cut_step["env"]
     for key in ("CLIP_URLS", "CLIP_COUNT", "LLM_BACKEND", "GROQ_API_KEY", "GEMINI_API_KEY"):
         assert key in env, key
+    # formats/proxy knobs and the artefact-friendly summary
+    for key in ("CLIP_MAX_VIDEO_HEIGHT", "YT_PROXY", "YTDLP_EXTRA_ARGS"):
+        assert key in env, key
+
+    summary = next(step for step in steps if step.get("name") == "Run summary")
+    assert summary["if"] == "always()"
+    assert "GITHUB_STEP_SUMMARY" in summary["run"]
 
 
 def test_tests_workflow_runs_pytest():

@@ -20,10 +20,22 @@ cli.py ──▶ pipeline.run()
 
 ### 1. Ingest (`youtube.py`)
 
-`yt-dlp` Python API, capped at 1080p, `noplaylist`, subtitles requested in the preferred
-language plus English/Hindi/Urdu. Cookies come from `CLIP_COOKIES`; power users can push raw
-flags through `YTDLP_EXTRA_ARGS` (parsed with yt-dlp's own `parse_options`). Errors are
-translated into actionable messages (bot check → cookies, private video, members-only).
+`yt-dlp` Python API, `noplaylist`, subtitles requested in the preferred language plus
+English/Hindi/Urdu. Three things keep the download from dying on an odd video:
+
+1. **Probe** — `probe_formats()` extracts metadata with `skip_download`, so the log (and
+   `out/<slug>/info.json`) can show exactly what YouTube offered: id, ext, resolution, fps,
+   codecs, size.
+2. **Best available** — `format: bv*+ba/b/best` plus `format_sort`
+   (`res:<max_height>`, `ext:mp4:m4a`, `codec:h264`, `br`); preferences, never filters.
+3. **Fallback ladder** — on a format error only (`_is_format_error`) the pipeline retries
+   `bv*+ba/b` → `best` → `b` (for live streams the loose order comes first, with
+   `live_from_start`). Bot-check/private/unavailable errors are fatal and friendly
+   (`_friendly_error`), so no time is wasted retrying them.
+
+Cookies come from `CLIP_COOKIES`, a proxy from `CLIP_PROXY`; power users can push raw flags
+through `YTDLP_EXTRA_ARGS`, and `_parse_extra_args` keeps only the flags that differ from an
+empty command line so yt-dlp's defaults cannot clobber `outtmpl`/`format`/subtitles.
 
 ### 2. Transcript (`subtitles.py`, `transcribe.py`)
 
