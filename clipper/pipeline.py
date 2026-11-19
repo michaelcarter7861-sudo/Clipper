@@ -38,11 +38,18 @@ class ClipOutput:
     path: Path | None
     thumbnail: Path | None
     ass: Path | None
+    output_duration: float = 0.0
+    editing: str = ""
+    edit: dict | None = None
 
     def to_dict(self) -> dict:
         payload = self.plan.to_dict()
         payload["file"] = self.path.name if self.path else None
         payload["thumbnail"] = self.thumbnail.name if self.thumbnail else None
+        payload["output_duration"] = round(self.output_duration, 2)
+        payload["editing"] = self.editing
+        if self.edit:
+            payload["edit"] = self.edit
         return payload
 
 
@@ -404,15 +411,16 @@ def _report_markdown(results: list[VideoResult], settings: Settings) -> str:
             lines.append(f"- **error:** {result.error}")
         lines.append("")
         if result.clips:
-            lines.append("| # | file | in | out | length | score | hook |")
-            lines.append("|---|------|----|-----|--------|-------|------|")
+            lines.append("| # | file | in | out | length | edit | score | hook |")
+            lines.append("|---|------|----|-----|--------|------|-------|------|")
             for clip in result.clips:
                 plan = clip.plan
                 name = clip.path.name if clip.path else "(dry run)"
                 hook = (plan.hook or plan.title).replace("|", "/")
+                length = clip.output_duration or plan.duration
                 lines.append(
                     f"| {plan.index} | `{name}` | {plan.start:.1f}s | {plan.end:.1f}s | "
-                    f"{plan.duration:.0f}s | {plan.score} | {hook} |"
+                    f"{length:.0f}s | {clip.editing or '-'} | {plan.score} | {hook} |"
                 )
         else:
             lines.append("_no clips_")
@@ -532,12 +540,26 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
                         path=rendered.path if not settings.dry_run else None,
                         thumbnail=rendered.thumbnail,
                         ass=clip_dir / f"{target.stem}.ass",
+                        output_duration=rendered.output_duration,
+                        editing=rendered.editing,
+                        edit=rendered.edit.to_dict() if rendered.edit else None,
                     )
                 )
             except Exception as exc:  # noqa: BLE001
                 log.error("clip %d failed: %s", plan.index, exc)
                 if settings.fail_fast:
                     raise
+
+        # Second pass: record what the render actually produced (cuts, output length).
+        _write_json(
+            clip_dir / "clips.json",
+            {
+                "video": source.to_dict(),
+                "method": method,
+                "notes": notes,
+                "clips": [clip.to_dict() for clip in outputs],
+            },
+        )
 
         result = VideoResult(
             source=source,
@@ -582,6 +604,12 @@ def _write_outputs(results: list[VideoResult], settings: Settings) -> None:
             "min_duration": settings.min_duration,
             "max_duration": settings.max_duration,
             "llm_backend": settings.llm_backend,
+            "editing": settings.editing,
+            "tighten": settings.tighten,
+            "speed": settings.speed,
+            "look": settings.look,
+            "punch_in": settings.punch_in,
+            "progress_bar": settings.progress_bar,
         },
         "videos": [result.to_dict() for result in results if result.dir],
         "failures": [result.error for result in results if result.error],

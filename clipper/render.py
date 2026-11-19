@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .captions import caption_filters, write_ass
 from .config import Settings
+from .edit import EditPlan, build_edit_plan, retime_transcript, summarise
 from .log import get_logger
 from .moments import ClipPlan
 from .subtitles import Transcript
@@ -32,6 +33,9 @@ class RenderResult:
     command: list[str]
     thumbnail: Path | None = None
     elapsed: float = 0.0
+    edit: EditPlan | None = None
+    output_duration: float = 0.0
+    editing: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -142,12 +146,12 @@ def _even(value: float) -> int:
     return int(value) // 2 * 2
 
 
-def _base_video_chain(settings: Settings) -> str:
+def _base_video_chain(settings: Settings, src: str = "[0:v]") -> str:
     """Reframe step as filter-graph statements, ending on an unlabelled node."""
     width, height = _even(settings.width), _even(settings.height)
     if settings.fit == "blur":
         return (
-            "[0:v]split=2[bgsrc][fgsrc];"
+            f"{src}split=2[bgsrc][fgsrc];"
             f"[bgsrc]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},gblur=sigma=32,eq=brightness=-0.06[bgtmp];"
             f"[fgsrc]scale={width}:{height}:force_original_aspect_ratio=decrease[fgtmp];"
@@ -155,13 +159,65 @@ def _base_video_chain(settings: Settings) -> str:
         )
     if settings.fit == "pad":
         return (
-            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"{src}scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black"
         )
     return (
-        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"{src}scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height}"
     )
+
+
+def _ff_color(value: str, alpha: float | None = None) -> str:
+    raw = (value or "#FFFFFF").strip()
+    if raw.startswith("#") and len(raw) == 7:
+        raw = "0x" + raw[1:]
+    return f"{raw}@{alpha}" if alpha is not None else raw
+
+
+def look_filters(settings: Settings) -> str:
+    """A cheap, tasteful grade per preset (no LUT files to install)."""
+    presets = {
+        "clean": "eq=contrast=1.04:saturation=1.06:brightness=0.008,unsharp=5:5:0.35",
+        "punchy": "eq=contrast=1.12:saturation=1.22:brightness=0.010,unsharp=5:5:0.6,"
+        "vignette=PI/5",
+        "cinematic": "eq=contrast=1.10:saturation=0.95:gamma_b=1.04:gamma_r=0.98,"
+        "unsharp=5:5:0.3,vignette=PI/4",
+    }
+    return presets.get(settings.look, "")
+
+
+def _trim_graph(
+    settings: Settings, edit: EditPlan, with_audio: bool
+) -> tuple[str, str, str]:
+    """Build the jump-cut concat graph. Returns ``(statements, video, audio)``."""
+    parts: list[str] = []
+    video_labels: list[str] = []
+    audio_labels: list[str] = []
+
+    for index, keep in enumerate(edit.keeps):
+        parts.append(
+            f"[0:v]trim=start={keep.start:.3f}:end={keep.end:.3f},"
+            f"setpts=PTS-STARTPTS[v{index}]"
+        )
+        video_labels.append(f"[v{index}]")
+        if with_audio:
+            parts.append(
+                f"[0:a]atrim=start={keep.start:.3f}:end={keep.end:.3f},"
+                f"asetpts=PTS-STARTPTS[a{index}]"
+            )
+            audio_labels.append(f"[a{index}]")
+
+    count = len(edit.keeps)
+    if with_audio:
+        inputs = "".join(
+            f"{video_labels[i]}{audio_labels[i]}" for i in range(count)
+        )
+        parts.append(f"{inputs}concat=n={count}:v=1:a=1[cv][ca]")
+        return ";".join(parts), "[cv]", "[ca]"
+
+    parts.append(f"{''.join(video_labels)}concat=n={count}:v=1:a=0[cv]")
+    return ";".join(parts), "[cv]", ""
 
 
 def build_filter_complex(
@@ -170,21 +226,53 @@ def build_filter_complex(
     duration: float,
     ass_filter: str | None,
     with_audio: bool = True,
+    edit: EditPlan | None = None,
 ) -> str:
-    video = _base_video_chain(settings)
+    """Full graph. ``duration`` is the *output* duration (fades, progress bar)."""
+    statements: list[str] = []
+    video_src, audio_src = "[0:v]", "[0:a]"
+
+    if edit is not None and len(edit.keeps) > 1:
+        trim_graph, video_src, audio_src = _trim_graph(settings, edit, with_audio)
+        statements.append(trim_graph)
+
+    video = _base_video_chain(settings, video_src)
     video += ",setsar=1"
+    if edit is not None and abs(edit.speed - 1.0) > 1e-6:
+        video += f",setpts=PTS/{edit.speed:.4f}"
     video += f",fps={settings.fps}"
+
+    if settings.punch_in > 1.001:
+        punch = settings.punch_in
+        video += (
+            f",scale=w='ceil(iw*{punch:.3f}/2)*2':h='ceil(ih*{punch:.3f}/2)*2':flags=bicubic"
+            f",crop={_even(settings.width)}:{_even(settings.height)}"
+        )
+
+    grade = look_filters(settings)
+    if grade:
+        video += f",{grade}"
+
     video += ",fade=t=in:st=0:d=0.20"
     if duration > 0.8:
         video += f",fade=t=out:st={max(0.0, duration - 0.30):.2f}:d=0.30"
+
+    if settings.progress_bar and duration > 1.0:
+        bar = max(4, round(settings.height * 0.006))
+        video += (
+            f",drawbox=x=0:y=ih-{bar}:w='iw*t/{duration:.3f}':h={bar}"
+            f":color={_ff_color('#FF3B30', 0.85)}:t=fill"
+        )
+
     if ass_filter:
         video += f",{ass_filter}"
     video += "[v]"
-
-    graph = video
+    statements.append(video)
 
     if with_audio:
-        audio = "[0:a]"
+        audio = audio_src
+        if edit is not None and abs(edit.speed - 1.0) > 1e-6:
+            audio += f"atempo={edit.speed:.4f},"
         if settings.denoise:
             audio += "afftdn=nf=-25,"
         if settings.loudness:
@@ -194,9 +282,9 @@ def build_filter_complex(
         if duration > 0.8:
             audio += f",afade=t=out:st={max(0.0, duration - 0.25):.2f}:d=0.25"
         audio += "[a]"
-        graph += ";" + audio
+        statements.append(audio)
 
-    return graph
+    return ";".join(statements)
 
 
 def build_command(
@@ -208,8 +296,10 @@ def build_command(
     end: float,
     ass_path: Path | None = None,
     with_audio: bool = True,
+    edit: EditPlan | None = None,
 ) -> list[str]:
-    duration = max(0.5, end - start)
+    source_duration = max(0.5, end - start)
+    output_duration = edit.output_duration if edit is not None else source_duration
     exe = resolve_binary(settings.ffmpeg) or settings.ffmpeg
     ass_filter = caption_filters(ass_path) if ass_path else None
 
@@ -222,13 +312,17 @@ def build_command(
         "-y",
         "-ss",
         f"{start:.3f}",
+        "-t",
+        f"{source_duration:.3f}",
         "-i",
         str(source),
-        "-t",
-        f"{duration:.3f}",
         "-filter_complex",
         build_filter_complex(
-            settings, duration=duration, ass_filter=ass_filter, with_audio=with_audio
+            settings,
+            duration=output_duration,
+            ass_filter=ass_filter,
+            with_audio=with_audio,
+            edit=edit,
         ),
         "-map",
         "[v]",
@@ -276,18 +370,29 @@ def render_clip(
     timeout: int = 2400,
 ) -> RenderResult:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    ass_path: Path | None = None
 
-    if settings.caption_style != "none":
+    edit_plan = build_edit_plan(transcript, plan.start, plan.end, settings)
+    output_duration = edit_plan.output_duration
+    edit_summary = summarise(edit_plan, settings)
+    if edit_plan.keeps and (len(edit_plan.keeps) > 1 or edit_plan.removed):
+        log.info("clip %d edit: %s", plan.index, edit_summary)
+
+    ass_path: Path | None = None
+    if settings.caption_style != "none" or settings.watermark:
         ass_path = (ass_dir or out_path.parent) / f"{out_path.stem}.ass"
+        # Captions are rebuilt on the edited timeline so cuts never desync them.
+        captions_transcript = (
+            retime_transcript(transcript, edit_plan) if not edit_plan.is_simple else transcript
+        )
+        caption_start = 0.0 if not edit_plan.is_simple else plan.start
         write_ass(
             ass_path,
-            transcript,
-            plan.start,
-            plan.end,
+            captions_transcript,
+            caption_start,
+            caption_start + output_duration,
             settings,
             hook=plan.hook,
-            clip_duration=plan.duration,
+            clip_duration=output_duration,
         )
 
     audio = has_audio(settings.ffprobe, source)
@@ -299,22 +404,37 @@ def render_clip(
         end=plan.end,
         ass_path=ass_path,
         with_audio=audio,
+        edit=edit_plan,
     )
+
+    def result(thumb: Path | None = None, elapsed: float = 0.0) -> RenderResult:
+        return RenderResult(
+            path=out_path,
+            start=plan.start,
+            end=plan.end,
+            command=command,
+            thumbnail=thumb,
+            elapsed=elapsed,
+            edit=edit_plan,
+            output_duration=output_duration,
+            editing=edit_summary,
+        )
 
     if dry_run:
         log.info("dry run: %s", " ".join(shlex.quote(part) for part in command))
-        return RenderResult(path=out_path, start=plan.start, end=plan.end, command=command)
+        return result()
 
     log.info(
-        "rendering clip %d (%.1fs → %.1fs, %.1fs long)",
+        "rendering clip %d (%.1fs → %.1fs, %.1fs in / %.1fs out)",
         plan.index,
         plan.start,
         plan.end,
         plan.duration,
+        output_duration,
     )
     started = time.time()
-    result = _run(command, timeout=timeout)
-    if result.returncode != 0 and audio:
+    completed = _run(command, timeout=timeout)
+    if completed.returncode != 0 and audio:
         log.warning("render failed with audio, retrying without an audio track")
         command = build_command(
             settings,
@@ -324,13 +444,14 @@ def render_clip(
             end=plan.end,
             ass_path=ass_path,
             with_audio=False,
+            edit=edit_plan,
         )
-        result = _run(command, timeout=timeout)
+        completed = _run(command, timeout=timeout)
 
-    if result.returncode != 0:
+    if completed.returncode != 0:
         raise RenderError(
-            f"ffmpeg failed for clip {plan.index} (exit {result.returncode}): "
-            f"{result.stderr.strip()[:600]}"
+            f"ffmpeg failed for clip {plan.index} (exit {completed.returncode}): "
+            f"{completed.stderr.strip()[:600]}"
         )
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise RenderError(f"ffmpeg produced no output for clip {plan.index}")
@@ -338,19 +459,13 @@ def render_clip(
     elapsed = time.time() - started
     thumbnail = make_thumbnail(settings, out_path, out_path.with_name(f"{out_path.stem}.jpg"))
     log.info(
-        "clip %d done in %.1fs (%.1f MB)",
+        "clip %d done in %.1fs (%.1f MB, %.1fs)",
         plan.index,
         elapsed,
         out_path.stat().st_size / 1e6,
+        output_duration,
     )
-    return RenderResult(
-        path=out_path,
-        start=plan.start,
-        end=plan.end,
-        command=command,
-        thumbnail=thumbnail,
-        elapsed=elapsed,
-    )
+    return result(thumb=thumbnail, elapsed=elapsed)
 
 
 def make_thumbnail(settings: Settings, clip: Path, out: Path) -> Path | None:

@@ -15,6 +15,8 @@ from pathlib import Path
 CAPTION_STYLES = ("karaoke", "plain", "none")
 FIT_MODES = ("crop", "blur", "pad")
 LLM_BACKENDS = ("auto", "claude-code", "api", "heuristic")
+EDITING_MODES = ("full", "cuts", "off")
+LOOKS = ("none", "clean", "punchy", "cinematic")
 
 _TRUTHY = {"1", "true", "t", "yes", "y", "on"}
 _FALSY = {"0", "false", "f", "no", "n", "off", ""}
@@ -122,6 +124,19 @@ class Settings:
     words_per_caption: int = 3
     hook_titles: bool = True
 
+    # editing
+    editing: str = "full"  # full | cuts | off (a preset for the knobs below)
+    tighten: bool = True
+    max_pause: float = 0.45
+    pre_roll: float = 0.10
+    post_roll: float = 0.18
+    remove_fillers: bool = False
+    speed: float = 1.0
+    punch_in: float = 1.04
+    look: str = "clean"
+    progress_bar: bool = True
+    watermark: str = ""
+
     # render
     fit: str = "crop"
     width: int = 1080
@@ -170,12 +185,52 @@ class Settings:
         self.caption_style = self.caption_style if self.caption_style in CAPTION_STYLES else "karaoke"
         self.fit = self.fit if self.fit in FIT_MODES else "crop"
         self.llm_backend = self.llm_backend if self.llm_backend in LLM_BACKENDS else "auto"
+        self.editing = self.editing if self.editing in EDITING_MODES else "full"
+        self.look = self.look if self.look in LOOKS else "clean"
+        self.speed = min(2.0, max(0.5, float(self.speed)))
+        self.punch_in = min(1.35, max(1.0, float(self.punch_in)))
+        self.max_pause = min(3.0, max(0.15, float(self.max_pause)))
+        self.pre_roll = min(1.0, max(0.0, float(self.pre_roll)))
+        self.post_roll = min(1.5, max(0.0, float(self.post_roll)))
+        self.watermark = (self.watermark or "").strip()[:40]
+        self._apply_editing_preset()
         self.words_per_caption = max(1, min(int(self.words_per_caption), 6))
         self.width = max(240, int(self.width))
         self.height = max(240, int(self.height))
         self.fps = max(15, min(int(self.fps), 60))
         self.crf = max(14, min(int(self.crf), 30))
         self.caption_size = max(0, int(self.caption_size))
+
+    def _apply_editing_preset(self) -> None:
+        """``editing`` only overrides knobs the caller left at their defaults."""
+        fields = Settings.__dataclass_fields__  # type: ignore[attr-defined]
+
+        def untouched(name: str) -> bool:
+            return getattr(self, name) == fields[name].default
+
+        if self.editing == "full":
+            return
+        if self.editing == "off":
+            self.tighten = False
+            if untouched("speed"):
+                self.speed = 1.0
+            if untouched("punch_in"):
+                self.punch_in = 1.0
+            if untouched("look"):
+                self.look = "none"
+            if untouched("progress_bar"):
+                self.progress_bar = False
+            return
+        # "cuts": tighten only, no visual grade
+        self.tighten = True
+        if untouched("speed"):
+            self.speed = 1.0
+        if untouched("punch_in"):
+            self.punch_in = 1.0
+        if untouched("look"):
+            self.look = "none"
+        if untouched("progress_bar"):
+            self.progress_bar = False
 
     # -- derived ----------------------------------------------------------- #
     @property
@@ -222,6 +277,17 @@ def settings_from_env(**overrides) -> Settings:
         "max_video_height": env_int("CLIP_MAX_VIDEO_HEIGHT", 1080),
         "ffmpeg": env_str("FFMPEG_BIN", "ffmpeg"),
         "ffprobe": env_str("FFPROBE_BIN", "ffprobe"),
+        "editing": env_str("CLIP_EDITING", "full"),
+        "tighten": env_bool("CLIP_TIGHTEN", True),
+        "max_pause": env_float("CLIP_MAX_PAUSE", 0.45),
+        "pre_roll": env_float("CLIP_PRE_ROLL", 0.10),
+        "post_roll": env_float("CLIP_POST_ROLL", 0.18),
+        "remove_fillers": env_bool("CLIP_REMOVE_FILLERS", False),
+        "speed": env_float("CLIP_SPEED", 1.0),
+        "punch_in": env_float("CLIP_PUNCH_IN", 1.04),
+        "look": env_str("CLIP_LOOK", "clean"),
+        "progress_bar": env_bool("CLIP_PROGRESS_BAR", True),
+        "watermark": env_str("CLIP_WATERMARK", ""),
         "llm_backend": env_str("LLM_BACKEND", "auto"),
         "llm_model": env_str("LLM_MODEL"),
         "llm_temperature": env_float("LLM_TEMPERATURE", 0.3),

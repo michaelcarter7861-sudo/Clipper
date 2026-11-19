@@ -17,6 +17,7 @@ YouTube link
    ├─ Claude Code       transcript parhta hai, viral moments chunta hai → clips.json
    │    └─ bridge       Anthropic API ⇄ free OpenAI-compatible LLM (Groq etc.)
    ├─ transcript        word-level timings
+   ├─ edit              jump cuts, speed, punch-in, grade, progress bar, watermark
    └─ ffmpeg            9:16 reframe + karaoke captions + hook title + loudnorm + x264
                                ↓
                         out/<video>/clip-01-....mp4  +  index.html gallery
@@ -76,6 +77,8 @@ preview, hook, score aur `download mp4` link wahan milega.
 | `clips` | `3` | per video kitne clips |
 | `min_duration` / `max_duration` | `18` / `60` | clip ki lambai (seconds) |
 | `caption_style` | `karaoke` | `karaoke` (word highlight) · `plain` · `none` |
+| `editing` | `full` | `full` (jump cuts + grade + punch-in + progress bar) · `cuts` (sirf jump cuts) · `off` (raw) |
+| `watermark` | *khali* | corner mein chhota handle/text, e.g. `@yourchannel` |
 | `fit` | `crop` | `crop` (center crop) · `blur` (blurred background) · `pad` (black bars) |
 | `language` | `auto` | `en`, `hi`, `ur`, … subtitles/whisper ke liye |
 | `whisper_model` | `base` | jab video par subtitles na hon |
@@ -92,7 +95,46 @@ preview, hook, score aur `download mp4` link wahan milega.
 
 ---
 
-## 3. Claude Code + free LLM API kaise kaam karta hai
+## 3. Editing (jo clips ko post-worthy banati hai)
+
+`editing: full` (default) har clip par ye karta hai:
+
+| Step | Kya hota hai | Flag |
+|---|---|---|
+| **Jump cuts** | 0.45s se lambi khamoshi/rukawat nikal jati hai; speech ke aas paas 0.1s handle rehta hai | `--max-pause`, `--no-tighten` |
+| **Filler cut** | `um`, `uh`, `matlab`, `yaani` jaise words kaat deta hai | `--remove-fillers` |
+| **Speed** | halka fast-forward (pacing ke liye) | `--speed 1.08` |
+| **Punch-in** | 4% zoom — frame composition badal jata hai, screen recording jaisa flat look nahi rehta | `--punch-in 1.06` |
+| **Grade** | `clean` / `punchy` / `cinematic` colour preset (contrast, saturation, vignette) | `--look punchy` |
+| **Progress bar** | neeche patli si retention bar | `--no-progress-bar` |
+| **Watermark** | corner mein aap ka handle, semi-transparent | `--watermark "@yourchannel"` |
+| **Captions + hook** | word-by-word karaoke captions aur upar hook title | `--caption-style` |
+
+Cuts ke baad captions automatically re-time ho jati hain (`edit.retime_transcript`), is liye
+audio aur text kabhi out of sync nahi hote. Run ke report mein har clip ke saath likha hota
+hai: `1 jump cut(s), -4.5s dead air, 1.08× speed, punchy grade, progress bar`.
+
+```bash
+python -m clipper --url "https://youtu.be/ID" --editing full --watermark "@yourchannel"
+python -m clipper --url "https://youtu.be/ID" --editing cuts      # sirf pacing
+python -m clipper --url "https://youtu.be/ID" --editing off       # as-shot
+```
+
+### Editing aur copyright — seedhi baat
+
+Editing quality barha deti hai, lekin **copyright ka legal masla khatam nahi karti**:
+
+- YouTube ka Content ID audio aur video dono match karta hai; jump cuts/zoom se match *kam*
+  ho sakta hai, magar claim/block ka risk zero nahi hota.
+- "Transformative use" / fair use kuch mulkon mein ek **legal defence** hai — jo court case
+  ki soorat mein tay hoti hai. Koi bhi tool ("is level ki editing karo to issue nahi aayega")
+  is ki guarantee nahi de sakta, aur main aisi guarantee nahi de raha.
+- Safe tareeqa: **apna content**, client ka licensed content, ya likhit permission wala content.
+  Kisi aur ka content use karna ho to: chhota hissa, apni commentary/analysis ke sath, credit
+  aur source link, aur platform ke rules follow karein.
+- Monetised/policy-strike risk aap ke account par aata hai, is liye pehle 1-2 clips test karein.
+
+## 4. Claude Code + free LLM API kaise kaam karta hai
 
 Claude Code Anthropic ki API language bolta hai. Free providers (Groq, Gemini, Cerebras,
 OpenRouter, FreeLLMAPI) OpenAI ki language bolte hain. Is liye repo ke andar ek chhota sa
@@ -147,7 +189,7 @@ claude                                   # ab Claude Code free pool par chal rah
 
 ---
 
-## 4. Local par chalana
+## 5. Local par chalana
 
 Zaroori cheezein: **Python 3.10+**, **ffmpeg** (libass ke sath), aur ek LLM key.
 
@@ -199,6 +241,13 @@ out/
 --language en|hi|ur|…
 --whisper-model base
 --cookies cookies.txt     YouTube "not a bot" ke liye
+--editing full|cuts|off   jump cuts + grade + progress bar (default full)
+--max-pause 0.45          is se lambi khamoshi cut ho jati hai
+--remove-fillers          um/uh/matlab/yaani bhi cut karo
+--speed 1.08              halka fast-forward
+--punch-in 1.06           4-6% zoom (naya framing)
+--look clean|punchy|cinematic
+--watermark "@yourchannel"
 --dry-run                 sirf plan + .ass + ffmpeg commands, encoding nahi
 --doctor                  environment check
 ```
@@ -207,11 +256,11 @@ Poori list: `python -m clipper --help`
 
 ---
 
-## 5. Troubleshooting (chhoti list)
+## 6. Troubleshooting (chhoti list)
 
 | Problem | Hal |
 |---|---|
-| `Sign in to confirm you're not a bot` | Browser se `cookies.txt` export karein (extension: "Get cookies.txt LOCALLY") aur repo secret `YT_COOKIES` mein base64 ya raw text daal dein. Details: [docs/SETUP.md](docs/SETUP.md#youtube-cookies) |
+| `Sign in to confirm you're not a bot` | Browser se `cookies.txt` export karein aur `YT_COOKIES` secret mein daal dein (raw ya base64). Check karne ke liye: `python -m clipper.cookies --check cookies.txt --test`. Details: [docs/SETUP.md](docs/SETUP.md#youtube-cookies) |
 | `no usable subtitles` | `requirements-whisper.txt` install ho, ya `whisper_model` = `small` |
 | Captions gayab / boxes | Runner par fonts nahi. `fonts-dejavu-core` install karein, ya `--caption-font` badlein |
 | Clips bane hi nahi | Log mein `brain:` line dekhein — key missing ho to `heuristic` chalta hai; `GROQ_API_KEY` check karein |
@@ -223,7 +272,7 @@ Zyada: [docs/SETUP.md](docs/SETUP.md) aur [docs/ARCHITECTURE.md](docs/ARCHITECTU
 
 ---
 
-## 6. Limits, cost, aur ek zaroori warning
+## 7. Limits, cost, aur ek zaroori warning
 
 - **Free LLM tiers** par rate limits hoti hain. Bara video + kam quota = slow run ya fallback
   (heuristic). `llm_backend: api` sabse sasta hai, `claude-code` sabse "smart" (agent file
@@ -231,12 +280,25 @@ Zyada: [docs/SETUP.md](docs/SETUP.md) aur [docs/ARCHITECTURE.md](docs/ARCHITECTU
 - **GitHub Actions**: har run mein ffmpeg + whisper model download hota hai (cache ke sath
   tez). 120 minute ka timeout set hai.
 - **Copyright / YouTube ToS**: sirf wo content clip karein jiska aap ko haq hai (apna channel,
-  client ka kaam, licensed material). YouTube downloads bot-check de sakta hai; cookies
-  apne hi account ki use karein. Ye tool kisi ki copyright ki khilaf-warzi ka license nahi deta.
+  client ka kaam, licensed material). Editing copyright se bachne ka license nahi deti —
+  section 3 ki "seedhi baat" parh lein. YouTube bot-check ke liye sirf **apne** account ki
+  cookies use karein.
+
+### Ye tool kya nahi karta (jaan boojh kar)
+
+- Koi "sab bypass karne wala" tool/repo integrate nahi kiya jata — na DRM/paid-content
+  bypass, na aisi cheez jo YouTube ki Terms of Service ke khilaf ho. Is tarah ke tools
+  account ban aur legal risk banate hain, aur GitHub par milne wale aise "bypass" repos
+  mein malware bhi aam hai.
+- Cookies sirf **apne** browser session ko reuse karti hain (wahi cheez jo aap manually
+  karte ho), aur wahi YouTube ka supported tareeqa hai. `python -m clipper.cookies` us file
+  ko check aur test karta hai — bypass nahi karta.
+- Copyright match ko chhupane ke liye "obfuscation" (speed/pitch/zoom tricks ka misuse) —
+  aisa kuch bhi nahi. Editing sirf quality aur pacing ke liye hai.
 
 ---
 
-## 7. Development
+## 8. Development
 
 ```bash
 pip install -r requirements-dev.txt

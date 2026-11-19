@@ -12,8 +12,10 @@ from pathlib import Path
 from . import __version__
 from .config import (
     CAPTION_STYLES,
+    EDITING_MODES,
     FIT_MODES,
     LLM_BACKENDS,
+    LOOKS,
     Settings,
     settings_from_env,
 )
@@ -62,6 +64,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-subtitles", dest="prefer_subtitles", action="store_false", default=None,
         help="ignore YouTube subtitles and always transcribe audio",
     )
+
+    editing = parser.add_argument_group("editing")
+    editing.add_argument(
+        "--editing", choices=EDITING_MODES, help="full | cuts (jump cuts only) | off"
+    )
+    editing.add_argument("--no-tighten", dest="tighten", action="store_false", default=None,
+                         help="keep pauses, no jump cuts")
+    editing.add_argument("--max-pause", type=float, help="cut pauses longer than this (seconds)")
+    editing.add_argument("--remove-fillers", dest="remove_fillers", action="store_true", default=None,
+                         help="also cut um/uh/matlab/yaani")
+    editing.add_argument("--speed", type=float, help="playback speed, e.g. 1.08")
+    editing.add_argument("--punch-in", type=float, help="zoom factor, e.g. 1.04 (1.0 = off)")
+    editing.add_argument("--look", choices=LOOKS, help="colour grade preset")
+    editing.add_argument("--no-progress-bar", dest="progress_bar", action="store_false", default=None)
+    editing.add_argument("--watermark", help="small handle/text in the corner, e.g. @yourchannel")
 
     captions = parser.add_argument_group("captions")
     captions.add_argument("--caption-style", choices=CAPTION_STYLES)

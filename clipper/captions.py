@@ -204,6 +204,7 @@ YCbCr Matrix: TV.709
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,{settings.caption_font},{size},{cap_primary},{cap_secondary},{outline},&H96000000,-1,0,0,0,100,100,0,0,1,{outline_width},1,2,{int(settings.width * 0.06)},{int(settings.width * 0.06)},{margin_v},1
 Style: Hook,{settings.caption_font},{hook_size},&H00FFFFFF,&H00FFFFFF,{outline},&H96000000,-1,0,0,0,100,100,0,0,1,{max(2, outline_width - 1)},1,8,{int(settings.width * 0.08)},{int(settings.width * 0.08)},{hook_margin},1
+Style: Watermark,{settings.caption_font},{max(18, int(round(size * 0.42)))},&H00FFFFFF,&H00FFFFFF,{outline},&H96000000,-1,0,0,0,100,100,1,0,1,{max(1, outline_width // 3)},0,3,{int(settings.width * 0.035)},{int(settings.width * 0.035)},{int(settings.height * 0.05)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -243,6 +244,15 @@ def build_ass(
                 f"{ass_time(group.start)},{ass_time(group_end)},Caption,,0,0,0,,"
                 f"{{\\fad(50,0)}}{text}"
             )
+
+    watermark = sanitise_text(settings.watermark)
+    if watermark:
+        lines.append(
+            "Dialogue: 2,"
+            f"{ass_time(0.0)},{ass_time(duration)},Watermark,,0,0,0,,"
+            "{\\alpha&H45&\\fad(300,300)}"
+            + _display(watermark, False)
+        )
 
     hook_text = sanitise_text(hook or "")
     if settings.hook_titles and hook_text:

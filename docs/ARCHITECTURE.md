@@ -11,7 +11,8 @@ cli.py ──▶ pipeline.run()
               ├─ youtube.download()    yt-dlp → source.mp4 + source.<lang>.vtt
               ├─ subtitles.parse_vtt() or transcribe.transcribe()
               ├─ claude_code.run_director() or moments.plan_with_llm() or moments.heuristic_clips()
-              ├─ render.render_clip()  ffmpeg: reframe → captions → loudnorm → x264
+              ├─ edit.build_edit_plan() jump cuts + speed, word timings re-mapped
+              ├─ render.render_clip()  ffmpeg: trim/concat → reframe → grade → captions → x264
               └─ _write_outputs()      manifest.json, report.md, index.html, run summary
 ```
 
@@ -76,14 +77,42 @@ Pure ASS generation, no external subtitle library:
 - emoji and non-BMP glyphs are stripped (DejaVu cannot draw them and would show tofu),
   and `{}`/`\` are escaped so a stray brace cannot break the file.
 
-### 5. Render (`render.py`)
+### 5. Editing (`edit.py`)
+
+`build_edit_plan` turns a clip window into a list of `Keep(start, end)` slices in clip-relative
+time:
+
+- words are grouped into speech runs; a gap wider than `max_pause` (default 0.45 s) ends a run;
+- optional filler words (`um`, `matlab`, `yaani`, …) end a run too, so they get cut;
+- each run gets `pre_roll` 0.10 s / `post_roll` 0.18 s handles, and runs that touch are merged;
+- fragments under `MIN_KEEP` (0.30 s) are dropped, a clip whose first run starts within 0.6 s
+  is anchored at 0 so the hook is never clipped, trailing dead air is trimmed;
+- if less than 0.35 s would be removed (or there would be >60 cuts) the raw window is kept —
+  micro-edits are worse than no edit.
+
+`EditPlan.map_time` maps source time → output time (`None` inside a cut). `retime_transcript`
+uses it to rebuild the transcript on the edited timeline, which is what the caption writer
+consumes, so cuts can never desync subtitles. Speed is clamped to 0.5–2.0 because ffmpeg's
+`atempo` needs that range; video uses `setpts=PTS/speed`.
+
+The visual side (`look`, `punch_in`, `progress_bar`) is applied inside the same ffmpeg graph
+after the reframe: `scale`+`crop` for the punch-in, `eq`/`unsharp`/`vignette` for the grade,
+and `drawbox` with a `t`-dependent width for the retention bar. The watermark is an ASS style
+so no font file path juggling is needed.
+
+### 6. Render (`render.py`)
 
 One ffmpeg `-filter_complex` graph per clip, input-seeked for speed:
 
 ```
-[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,
-     setsar=1,fps=30,fade in/out,ass=captions.ass[v]
-[0:a]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,afade in/out[a]
+# with jump cuts
+[0:v]trim=0:1.58,setpts=PTS-STARTPTS[v0]; [0:a]atrim=0:1.58,asetpts=PTS-STARTPTS[a0];
+[0:v]trim=4.40:6.58,setpts=PTS-STARTPTS[v1]; … ;
+[v0][a0][v1][a1]concat=n=2:v=1:a=1[cv][ca];
+[cv]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,
+    scale=punch-in,crop=1080:1920,eq/unsharp/vignette,fade in/out,
+    drawbox=progress bar,ass=captions.ass[v]
+[ca]atempo=speed,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,afade in/out[a]
 ```
 
 `fit=blur` splits the stream: blurred, darkened cover copy underneath, letterboxed original on
@@ -91,7 +120,7 @@ top. `fit=pad` letterboxes on black. Output is `libx264` (CRF 20, `veryfast`), `
 AAC 160 kbps, `+faststart`, and a JPEG thumbnail is grabbed at 1 s. If the source has no audio
 or the audio graph fails, the clip is retried with `-an` rather than losing the render.
 
-### 6. Outputs (`pipeline.py`)
+### 7. Outputs (`pipeline.py`)
 
 Per video: `clips.json`, `transcript.json`, `info.json`, an ASS file and thumbnail per clip,
 plus a self-contained `index.html` gallery with `<video>` previews. At the root:
@@ -139,5 +168,6 @@ missing.
 | Smarter selection criteria | `prompts.py` |
 | Another LLM provider | `llm.py` `_PROVIDER_TABLE` |
 | Speaker-aware crop / face tracking | `render.py` `_base_video_chain` (crop expressions) |
+| More editing moves (b-roll, SFX, transitions) | `edit.py` plan + `render.py` graph |
 | Music bed, SFX, b-roll | `render.py` (add inputs + `amix`/`overlay`) |
 | Auto-upload to TikTok/Shorts | new module after `render_clip`, plus a workflow step |

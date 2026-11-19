@@ -30,6 +30,15 @@ on:
         type: choice
         default: karaoke
         options: [karaoke, plain, none]
+      editing:
+        description: "Editing level"
+        type: choice
+        default: full
+        options: [full, cuts, "off"]
+      watermark:
+        description: "Optional watermark/handle, e.g. @yourchannel (blank = none)"
+        default: ""
+        type: string
       fit:
         description: "How to fill a 9:16 frame"
         type: choice
@@ -117,24 +126,20 @@ jobs:
 
       - name: Prepare YouTube cookies (optional)
         env:
-          COOKIES: ${{ secrets.YT_COOKIES }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
-          if [ -z "$COOKIES" ]; then
+          if [ -z "$YT_COOKIES" ]; then
             echo "No YT_COOKIES secret set — trying without cookies."
             exit 0
           fi
           mkdir -p "$CLIP_WORK_DIR"
-          printf '%s' "$COOKIES" > "$CLIP_WORK_DIR/cookies.raw"
-          if base64 -d "$CLIP_WORK_DIR/cookies.raw" > "$CLIP_WORK_DIR/cookies.txt" 2>/dev/null \
-             && grep -q "$(printf '\t')" "$CLIP_WORK_DIR/cookies.txt"; then
-            echo "Cookie secret was base64."
-          else
-            cp "$CLIP_WORK_DIR/cookies.raw" "$CLIP_WORK_DIR/cookies.txt"
-            echo "Cookie secret used as raw text."
+          # Accepts the raw cookies.txt text or its base64 form, validates it, and
+          # asks YouTube whether that session actually works.
+          python -m clipper.cookies --from-secret \
+            --out "$CLIP_WORK_DIR/cookies.txt" --test || true
+          if [ -s "$CLIP_WORK_DIR/cookies.txt" ]; then
+            echo "CLIP_COOKIES=$CLIP_WORK_DIR/cookies.txt" >> "$GITHUB_ENV"
           fi
-          rm -f "$CLIP_WORK_DIR/cookies.raw"
-          chmod 600 "$CLIP_WORK_DIR/cookies.txt"
-          echo "CLIP_COOKIES=$CLIP_WORK_DIR/cookies.txt" >> "$GITHUB_ENV"
 
       - name: Cut clips
         env:
@@ -143,6 +148,8 @@ jobs:
           CLIP_MIN_DURATION: ${{ inputs.min_duration }}
           CLIP_MAX_DURATION: ${{ inputs.max_duration }}
           CAPTION_STYLE: ${{ inputs.caption_style }}
+          CLIP_EDITING: ${{ inputs.editing }}
+          CLIP_WATERMARK: ${{ inputs.watermark }}
           CLIP_FIT: ${{ inputs.fit }}
           CLIP_LANGUAGE: ${{ inputs.language }}
           WHISPER_MODEL: ${{ inputs.whisper_model }}

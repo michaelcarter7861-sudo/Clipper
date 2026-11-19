@@ -6,7 +6,8 @@ Everything the README keeps short, in one place.
 - [Getting a free LLM key](#getting-a-free-llm-key)
 - [FreeLLMAPI router (Tashfeen Ahmed)](#freellmapi-router-tashfeen-ahmed)
 - [Claude Code in CI](#claude-code-in-ci)
-- [YouTube cookies](#youtube-cookies)
+- [YouTube cookies (as the easiest possible way)](#youtube-cookies)
+- [Editing knobs](#editing-knobs)
 - [Whisper (videos without subtitles)](#whisper-videos-without-subtitles)
 - [Fonts and caption styling](#fonts-and-caption-styling)
 - [Running locally](#running-locally)
@@ -137,20 +138,79 @@ Notes:
 
 ## YouTube cookies
 
-YouTube increasingly asks datacenter IPs to "confirm you're not a bot". Cookies from your own
-logged-in browser fix it (and unlock age-restricted or members-only videos you legitimately
-have access to).
+YouTube asks datacenter IPs (like GitHub runners) to "confirm you're not a bot". The
+supported fix is to reuse **your own logged-in browser session** — the same thing you would
+do manually. No bypass tooling is involved, and none is supported.
 
-1. Install a "Get cookies.txt LOCALLY" style extension in your browser.
-2. Open YouTube (logged in), export in **Netscape** format → `cookies.txt`.
-3. Either:
-   - **raw**: paste the whole file content into the `YT_COOKIES` secret, or
-   - **base64**: `base64 -w0 cookies.txt | pbcopy` (macOS: `base64 -i cookies.txt`) and paste that.
-4. The workflow writes it to `.clipper-work/cookies.txt` and exports `CLIP_COOKIES`.
+### Three steps in the browser
+
+1. **Install the extension** "Get cookies.txt LOCALLY" (Chrome/Edge/Firefox store).
+   It only reads the cookies of the tab you are on.
+2. **Open `youtube.com` while logged in**, click the extension, choose **Export** (Netscape
+   format). You get a `cookies.txt`.
+3. **Check it before you paste it anywhere**:
+
+```bash
+python -m clipper.cookies --check cookies.txt --test
+```
+
+You should see something like:
+
+```
+OK · 24 cookie(s) from cookies.txt
+  youtube/google cookies : 24
+  login cookies          : HSID, SAPISID, SID, SSID, __Secure-3PSID
+  youtube test: PASS — YouTube accepted the cookies (tested on: Big Buck Bunny…)
+```
+
+If it says `FAIL`, log out/in on YouTube, export again, and re-check. Common causes:
+
+| Message | Meaning |
+|---|---|
+| `no YouTube/Google cookies` | file exported from another site / wrong tab |
+| `no Google login cookies` | you were not logged in when exporting |
+| `every cookie has expired` | export is old — do it again |
+| `YouTube still wants a sign-in` | cookies are for the wrong account, or rotated |
+
+### Then, in GitHub
+
+- **Simplest:** paste the file's text into the secret `YT_COOKIES` (raw text is fine).
+- **Or base64** (handy for copy/paste on mobile):
+  `base64 -w0 cookies.txt` (macOS: `base64 -i cookies.txt`) → paste as `YT_COOKIES`.
+
+The workflow runs `python -m clipper.cookies --from-secret --out … --test`, which accepts
+either form, normalises the file, and prints whether YouTube accepted it. If the cookies are
+bad the run continues without them instead of failing.
 
 Locally: `python -m clipper --url … --cookies ./cookies.txt`.
 
-Cookies are credentials — never commit them. They are gitignored here.
+> Cookies are credentials. Never commit them (they are gitignored here), never share them in
+> chat, and revoke sessions from your Google account page if a file leaks.
+
+## Editing knobs
+
+All of these are off/neutral in `--editing off`, and on in the default `--editing full`.
+
+| Flag | Env | Default | Effect |
+|---|---|---|---|
+| `--editing` | `CLIP_EDITING` | `full` | `full` · `cuts` · `off` preset |
+| `--no-tighten` | `CLIP_TIGHTEN=false` | tighten on | shut off jump cuts |
+| `--max-pause` | `CLIP_MAX_PAUSE` | `0.45` | pauses longer than this get cut |
+| `--remove-fillers` | `CLIP_REMOVE_FILLERS` | off | also cut um/uh/matlab/yaani |
+| `--speed` | `CLIP_SPEED` | `1.0` | playback speed (0.5–2.0; audio uses `atempo`) |
+| `--punch-in` | `CLIP_PUNCH_IN` | `1.04` | zoom factor (1.0 = off) |
+| `--look` | `CLIP_LOOK` | `clean` | `none` · `clean` · `punchy` · `cinematic` |
+| `--no-progress-bar` | `CLIP_PROGRESS_BAR=false` | bar on | thin retention bar at the bottom |
+| `--watermark` | `CLIP_WATERMARK` | empty | corner handle/text, e.g. `@yourchannel` |
+
+How it works: `clipper/edit.py` builds a keep-list from the word timings (speech groups plus
+0.10 s pre-roll / 0.18 s post-roll, merged when they touch), ffmpeg trims and concatenates
+those slices, and the captions are rebuilt on the **new** timeline so they never drift.
+`clips.json` records the plan (`cuts`, `removed_seconds`, `output_duration`) so you can audit
+a cut you did not like.
+
+Editing improves pacing and originality of presentation — it is **not** a copyright shield.
+See the README section "Editing aur copyright — seedhi baat".
 
 ---
 
