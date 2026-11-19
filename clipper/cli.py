@@ -104,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     youtube = parser.add_argument_group("youtube")
     youtube.add_argument("--cookies", help="path to a Netscape cookies.txt")
     youtube.add_argument("--max-height", dest="max_video_height", type=int, help="max source height")
+    youtube.add_argument("--proxy", help="route yt-dlp through a proxy, e.g. http://host:port")
+    youtube.add_argument(
+        "--list-formats",
+        action="store_true",
+        help="print the formats YouTube offers for each URL and exit",
+    )
 
     misc = parser.add_argument_group("misc")
     misc.add_argument("--dry-run", action="store_true", default=None, help="plan + captions, no encoding")
@@ -119,6 +125,7 @@ def settings_from_args(argv: list[str] | None = None) -> tuple[Settings, argpars
     args = parser.parse_args(argv)
     overrides = {key: value for key, value in vars(args).items() if value is not None}
     overrides.pop("doctor", None)
+    overrides.pop("list_formats", None)
     settings = settings_from_env(**overrides)
     return settings, args
 
@@ -129,6 +136,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.doctor:
         return doctor_cli(settings)
+
+    if getattr(args, "list_formats", False):
+        if not settings.urls:
+            log.error("give at least one link with --url")
+            return 2
+        from .youtube import list_formats
+
+        return max(list_formats(url, settings) for url in settings.urls)
 
     try:
         return run(settings)

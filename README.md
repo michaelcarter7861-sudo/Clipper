@@ -79,11 +79,23 @@ preview, hook, score aur `download mp4` link wahan milega.
 | `caption_style` | `karaoke` | `karaoke` (word highlight) · `plain` · `none` |
 | `editing` | `full` | `full` (jump cuts + grade + punch-in + progress bar) · `cuts` (sirf jump cuts) · `off` (raw) |
 | `watermark` | *khali* | corner mein chhota handle/text, e.g. `@yourchannel` |
+| `max_height` | `1080` | sab se oonchi source resolution jo download ho (720 se tez run) |
 | `fit` | `crop` | `crop` (center crop) · `blur` (blurred background) · `pad` (black bars) |
 | `language` | `auto` | `en`, `hi`, `ur`, … subtitles/whisper ke liye |
 | `whisper_model` | `base` | jab video par subtitles na hon |
 | `llm_backend` | `auto` | `auto` · `claude-code` · `api` · `heuristic` |
 | `publish_release` | `false` | clips ko GitHub Release mein daal do |
+
+**Formats ka masla khud hal ho jata hai:** har run pehle YouTube se poochta hai ke kaunse
+formats maujood hain (log mein table + `out/<slug>/info.json` mein `formats`), phir **sab se
+behtar available** format download karta hai. Agar woh na mile to khud `best` aur phir `b`
+try karta hai — is liye `Requested format is not available` par run nahi girta. Live streams
+(`/live/...`) par shuru se download hota hai, jis ka log mein pehle se warning aata hai.
+
+Agar runner ka IP YouTube ko pasand na aaye (bot-check ya block), do options hain — dono
+secrets hain: `YT_COOKIES` (aap ka session) aur `YT_PROXY` (e.g. `http://user:pass@host:port`).
+`YTDLP_EXTRA_ARGS` (repository **variable**, yt-dlp flags) bhi support hai, misaal:
+`--cookies-from-browser chrome`.
 
 `llm_backend` ka matlab:
 
@@ -261,6 +273,10 @@ Poori list: `python -m clipper --help`
 | Problem | Hal |
 |---|---|
 | `Sign in to confirm you're not a bot` | Browser se `cookies.txt` export karein aur `YT_COOKIES` secret mein daal dein (raw ya base64). Check karne ke liye: `python -m clipper.cookies --check cookies.txt --test`. Details: [docs/SETUP.md](docs/SETUP.md#youtube-cookies) |
+| `Requested format is not available` | Ab khud handle hota hai (best → best → b fallback). Log mein `formats offered for …` table dekhein; `max_height` kam karein ya baad mein dobara try karein |
+| Live stream (`/live/...`) | Live par formats badalte rehte hain. Stream khatam hone ke baad `https://www.youtube.com/watch?v=ID` se chalayein |
+| `YouTube did not offer a format` (report mein) | Woh video sirf aise format de raha hai jo download nahi ho sakte (kabhi live/SABR). Log ki formats table bhejein — proxy ya doosra link try karein |
+| Formats dekhne hain (local) | `python -m clipper --list-formats --url "link"` |
 | `no usable subtitles` | `requirements-whisper.txt` install ho, ya `whisper_model` = `small` |
 | Captions gayab / boxes | Runner par fonts nahi. `fonts-dejavu-core` install karein, ya `--caption-font` badlein |
 | Clips bane hi nahi | Log mein `brain:` line dekhein — key missing ho to `heuristic` chalta hai; `GROQ_API_KEY` check karein |

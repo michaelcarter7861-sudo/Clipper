@@ -162,6 +162,7 @@ class Settings:
     # youtube
     cookies: Path | None = None
     ytdlp_extra_args: list[str] = field(default_factory=list)
+    proxy: str = ""
 
     # misc
     dry_run: bool = False
@@ -175,6 +176,7 @@ class Settings:
         self.out_dir = Path(self.out_dir)
         self.work_dir = Path(self.work_dir) if self.work_dir else None
         self.cookies = _path(self.cookies)
+        self.proxy = (self.proxy or "").strip()
 
         self.clips = max(1, min(int(self.clips), 12))
         self.min_duration = max(4.0, float(self.min_duration))
@@ -297,6 +299,7 @@ def settings_from_env(**overrides) -> Settings:
         "bridge_port": env_int("CLIP_BRIDGE_PORT", 0),
         "cookies": env_str("CLIP_COOKIES"),
         "ytdlp_extra_args": env_list("YTDLP_EXTRA_ARGS"),
+        "proxy": env_str("CLIP_PROXY", "") or env_str("YT_PROXY", ""),
         "dry_run": env_bool("CLIP_DRY_RUN", False),
         "keep_source": env_bool("CLIP_KEEP_SOURCE", False),
         "fail_fast": env_bool("CLIP_FAIL_FAST", False),

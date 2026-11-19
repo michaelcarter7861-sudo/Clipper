@@ -33,11 +33,33 @@ You only need **one** LLM entry.
 | `LLM_MODEL` | optional | override the model id, e.g. `llama-3.1-8b-instant` (repository *variable* or secret) |
 | `CLAUDE_MODEL` | optional | model id Claude Code reports (default `claude-sonnet-4-5`; the router decides the real model) — variable or secret |
 | `YT_COOKIES` | optional | YouTube cookies, raw `cookies.txt` text **or** base64 |
+| `YT_PROXY` | optional | proxy for yt-dlp, e.g. `http://user:pass@host:port` — use it when this runner's IP gets bot-checked |
+| `YTDLP_EXTRA_ARGS` | optional | repository **variable** with extra yt-dlp flags, e.g. `--cookies-from-browser chrome` (only the flags you set are used) |
 
 Environment-only knobs (set them in the workflow `env:` block if you want to change defaults):
 `CLIP_COUNT`, `CLIP_MIN_DURATION`, `CLIP_MAX_DURATION`, `CAPTION_STYLE`, `CAPTION_HIGHLIGHT`,
 `CAPTION_FONT`, `CLIP_FIT`, `CLIP_FPS`, `CLIP_CRF`, `CLIP_PRESET`, `WHISPER_MODEL`,
-`CLIP_LANGUAGE`, `LLM_BACKEND`, `LLM_TEMPERATURE`, `YTDLP_EXTRA_ARGS`, `CLIP_VERBOSE`.
+`CLIP_LANGUAGE`, `LLM_BACKEND`, `LLM_TEMPERATURE`, `YTDLP_EXTRA_ARGS`, `CLIP_PROXY`,
+`CLIP_MAX_VIDEO_HEIGHT`, `CLIP_VERBOSE`.
+
+### How a link is downloaded (formats + live streams)
+
+Every run does a **format probe first**: yt-dlp lists what YouTube actually offers, the log
+prints a table (`id / ext / res / fps / codec / size`) and the same rows land in
+`out/<slug>/info.json`. The download then asks for the best available format
+(`bv*+ba/b` sorted by `res` ≤ `max_height`, mp4/m4a, h264). If YouTube answers
+`Requested format is not available`, the pipeline retries by itself with `best`, then `b` —
+so a narrow format selector can no longer kill a run.
+
+Live links (`/live/…`) are fetched from the start of the stream (warning in the log), and
+formats on a running stream keep changing — clipping an already-finished stream
+(`/watch?v=…`) is far more reliable. Upcoming streams are rejected with a clear message.
+
+See the formats yourself without downloading anything:
+
+```bash
+python -m clipper --list-formats --url "https://youtu.be/VIDEO_ID"
+```
 
 ---
 
