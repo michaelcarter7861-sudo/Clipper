@@ -87,10 +87,17 @@ class Backend:
 
 @contextmanager
 def make_backend(settings: Settings) -> Iterator[Backend]:
-    """Pick the best available brain and clean up the bridge afterwards."""
+    """Pick the best available brain and always clean up the bridge."""
     provider = resolve_provider(settings)
     want_claude = settings.llm_backend in ("auto", "claude-code")
     bridge: Bridge | None = None
+
+    def finish(backend: Backend) -> Iterator[Backend]:
+        try:
+            yield backend
+        finally:
+            if bridge is not None:
+                bridge.stop()
 
     if settings.llm_backend == "heuristic":
         yield Backend(kind="heuristic")
@@ -98,7 +105,12 @@ def make_backend(settings: Settings) -> Iterator[Backend]:
 
     if want_claude and claude_available():
         explicit_base = (os.environ.get("ANTHROPIC_BASE_URL") or "").strip()
-        token = (os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY") or "local").strip()
+        token = (
+            os.environ.get("ANTHROPIC_AUTH_TOKEN")
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or "local"
+        ).strip()
+
         if explicit_base:
             yield Backend(
                 kind="claude-code",
@@ -107,6 +119,7 @@ def make_backend(settings: Settings) -> Iterator[Backend]:
                 token=token,
             )
             return
+
         if provider is not None:
             try:
                 bridge = start_bridge(
@@ -115,14 +128,15 @@ def make_backend(settings: Settings) -> Iterator[Backend]:
             except OSError as exc:
                 warning(f"could not start the Claude bridge ({exc}); using the direct API path")
             else:
-                yield Backend(
-                    kind="claude-code",
-                    provider=provider,
-                    bridge=bridge,
-                    base_url=bridge.base_url,
-                    token=token,
+                yield from finish(
+                    Backend(
+                        kind="claude-code",
+                        provider=provider,
+                        bridge=bridge,
+                        base_url=bridge.base_url,
+                        token=token,
+                    )
                 )
-                bridge.stop()
                 return
 
     if provider is not None:
