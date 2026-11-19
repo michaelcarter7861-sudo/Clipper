@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import Settings
@@ -74,6 +75,8 @@ def video_id_from_url(url: str) -> str:
 
 
 FORMAT_CHAIN = "bv*+ba/b/best"
+PROBE_FORMAT = "all"  # list every format, even when only images exist
+PLAYER_CLIENTS = ("android", "tv", "web_safari", "ios", "mweb")
 FORMAT_ERROR_HINTS = (
     "requested format is not available",
     "no video formats found",
@@ -166,9 +169,11 @@ def _ydl_opts(
     format_selector: str | None = None,
     live_from_start: bool = False,
     probe: bool = False,
+    player_client: str | None = None,
+    drop_cookies: bool = False,
 ) -> dict:
     opts: dict = {
-        "format": format_selector or FORMAT_CHAIN,
+        "format": PROBE_FORMAT if probe else (format_selector or FORMAT_CHAIN),
         "format_sort": _format_sort(settings),
         "merge_output_format": "mp4",
         "outtmpl": str(work_dir / "source.%(ext)s"),
@@ -192,12 +197,14 @@ def _ydl_opts(
         opts["live_from_start"] = True
     if probe:
         opts["skip_download"] = True
-    if settings.cookies and settings.cookies.exists():
+    if settings.cookies and settings.cookies.exists() and not drop_cookies:
         opts["cookiefile"] = str(settings.cookies)
     if settings.proxy:
         opts["proxy"] = settings.proxy
     if settings.ytdlp_extra_args:
         opts.update(_parse_extra_args(settings.ytdlp_extra_args))
+    if player_client:
+        _set_player_client(opts, player_client)
     return opts
 
 
@@ -287,11 +294,41 @@ def _live_state(info: dict | None) -> str:
     return str(info.get("live_status") or ("is_live" if info.get("is_live") else "not_live"))
 
 
-def _attempts(live: bool) -> list[tuple[str, str]]:
-    """Escalating format requests: the constrained pick first, then whatever exists."""
-    if live:
-        return [("best single file", "b"), ("best", "best"), ("best video+audio", "bv*+ba/b")]
-    return [("best video+audio", "bv*+ba/b"), ("best", "best"), ("best single file", "b")]
+@dataclass(frozen=True)
+class FormatAttempt:
+    """One download try: which selector, which player client, cookies or not."""
+
+    label: str
+    selector: str
+    player_client: str | None = None
+    drop_cookies: bool = False
+
+
+def _attempts(live: bool, *, has_cookies: bool = False) -> list[FormatAttempt]:
+    """Escalating tries: default client, then each player client, then cookie-free.
+
+    YouTube sometimes answers with storyboard images only for one client/IP and a real
+    stream for another, so the ladder keeps asking in a different way instead of dying.
+    """
+    primary = "b" if live else "bv*+ba/b"
+    attempts = [FormatAttempt("default client", primary)]
+    attempts.extend(FormatAttempt(f"client {client}", primary, player_client=client) for client in PLAYER_CLIENTS)
+    attempts.append(FormatAttempt("best", "best"))
+    attempts.append(FormatAttempt("best single file", "b"))
+    if has_cookies:
+        attempts.append(
+            FormatAttempt("no cookies + android", primary, player_client="android", drop_cookies=True)
+        )
+    return attempts
+
+
+def _set_player_client(opts: dict, client: str) -> None:
+    """Pin one YouTube player client without dropping other extractor args."""
+    args = dict(opts.get("extractor_args") or {})
+    youtube = dict(args.get("youtube") or {})
+    youtube["player_client"] = [client]
+    args["youtube"] = youtube
+    opts["extractor_args"] = args
 
 
 def probe_formats(url: str, work_dir: Path, settings: Settings) -> dict | None:
@@ -307,12 +344,59 @@ def probe_formats(url: str, work_dir: Path, settings: Settings) -> dict | None:
         text = str(exc)
         if _is_fatal(text):
             raise DownloadError(_friendly_error(text)) from exc
-        log.debug("could not list formats for %s: %s", url, text)
+        log.warning("could not list formats for %s: %s", url, _one_line(text))
         return None
     if isinstance(info, dict) and info.get("entries"):
         entries = [entry for entry in info["entries"] if entry]
         info = entries[0] if entries else info
     return info if isinstance(info, dict) else None
+
+
+def _write_formats_report(
+    out_dir: Path,
+    url: str,
+    info: dict | None,
+    errors: list[tuple[str, str]],
+    live_state: str = "",
+    fatal: str = "",
+) -> Path:
+    """Append what YouTube offered — and why every attempt failed — to ``out/formats.txt``.
+
+    The file rides along in the artifact, so a failed run can be diagnosed later without
+    digging through the Actions log.
+    """
+    path = out_dir / "formats.txt"
+    lines = [
+        "=" * 70,
+        f"url: {url}",
+        f"time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"live_status: {live_state or 'unknown'}",
+    ]
+    if info:
+        lines.append(f"title: {info.get('title')!r}  duration: {info.get('duration')}")
+        raw = info.get("formats") or []
+        lines.append(f"formats listed by yt-dlp: {len(raw)}")
+        for fmt in raw[:40]:
+            lines.append(
+                "  "
+                + "\t".join(
+                    str(fmt.get(key) or "-")
+                    for key in ("format_id", "ext", "height", "vcodec", "acodec", "format_note")
+                )
+            )
+    if errors:
+        lines.append("attempts:")
+        lines.extend(f"  {label}: {reason}" for label, reason in errors)
+    if fatal:
+        lines.append(f"fatal: {fatal}")
+    lines.append("")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    except OSError as exc:  # pragma: no cover - disk problems
+        log.debug("could not write %s: %s", path, exc)
+    return path
 
 
 def list_formats(url: str, settings: Settings) -> int:
@@ -326,13 +410,24 @@ def list_formats(url: str, settings: Settings) -> int:
         return 1
     live = _live_state(info) == "is_live"
     log.info("%s — %s%s", url, info.get("title") or "unknown title", " (live)" if live else "")
-    for line in format_table(_format_rows(info)):
-        log.info("%s", line)
-    return 0
+    rows = _format_rows(info)
+    if rows:
+        for line in format_table(rows):
+            log.info("%s", line)
+        return 0
+    raw = info.get("formats") or []
+    log.warning(
+        "YouTube listed %d format(s) but none are downloadable (storyboards/images only) — "
+        "that is the throttled-IP / stale-cookie signature; try CLIP_PROXY or a fresh YT_COOKIES",
+        len(raw),
+    )
+    for fmt in raw[:15]:
+        log.info("  %-8s %-6s %s", fmt.get("format_id") or "-", fmt.get("ext") or "-", fmt.get("format_note") or "")
+    return 1
 
 
 def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
-    """List the available formats, download the best one, and keep its subtitles."""
+    """List the formats YouTube offers, then download the best one that answers."""
     work_dir.mkdir(parents=True, exist_ok=True)
     try:
         import yt_dlp
@@ -340,6 +435,7 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         raise DownloadError("yt-dlp is not installed (pip install -r requirements.txt)") from exc
 
     probed = probe_formats(url, work_dir, settings)
+    raw_formats = (probed or {}).get("formats") or []
     rows = _format_rows(probed)
     live_state = _live_state(probed)
     if live_state == "is_upcoming":
@@ -348,32 +444,73 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             "Try again once it has aired (or use a normal video link)."
         )
     live = live_state == "is_live"
+    images_only = bool(raw_formats) and not rows
     if probed is not None:
         label = str(probed.get("id") or video_id_from_url(url)) + (" (live)" if live else "")
-        log.info("formats offered for %s — %d row(s):", label, len(rows))
+        log.info(
+            "formats offered for %s — %d downloadable of %d listed:",
+            label,
+            len(rows),
+            len(raw_formats),
+        )
         for line in format_table(rows):
             log.info("%s", line)
+        if images_only:
+            log.warning(
+                "%s: YouTube listed only storyboards/images — no stream. Trying other players.",
+                label,
+            )
         if live:
             log.warning("%s", LIVE_WARNING)
 
+    has_cookies = bool(settings.cookies and settings.cookies.exists())
+    attempts = _attempts(live, has_cookies=has_cookies)
+    errors: list[tuple[str, str]] = []
     last_error = ""
     info: dict | None = None
-    for label, selector in _attempts(live):
+    for attempt in attempts:
         try:
             with yt_dlp.YoutubeDL(
-                _ydl_opts(settings, work_dir, format_selector=selector, live_from_start=live)
+                _ydl_opts(
+                    settings,
+                    work_dir,
+                    format_selector=attempt.selector,
+                    live_from_start=live,
+                    player_client=attempt.player_client,
+                    drop_cookies=attempt.drop_cookies,
+                )
             ) as ydl:
                 info = ydl.extract_info(url, download=True)
         except Exception as exc:  # yt-dlp raises many exception types
             last_error = str(exc)
+            reason = _one_line(last_error)
+            errors.append((attempt.label, reason))
             if not _is_format_error(last_error):
-                raise DownloadError(_friendly_error(last_error, rows, live=live)) from exc
-            log.warning("%s failed (%s) — trying the next format", label, _one_line(last_error))
+                _write_formats_report(settings.out_dir, url, probed, errors, live_state, fatal=reason)
+                raise DownloadError(
+                    _friendly_error(
+                        last_error,
+                        rows,
+                        live=live,
+                        images_only=images_only,
+                        clients_tried=[tried.label for tried, _ in errors],
+                    )
+                ) from exc
+            log.warning("%s failed (%s) — trying the next attempt", attempt.label, reason)
             continue
-        log.info("downloading with format: %s", label)
+        log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
     if info is None:
-        raise DownloadError(_friendly_error(last_error, rows, live=live))
+        _write_formats_report(settings.out_dir, url, probed, errors, live_state)
+        raise DownloadError(
+            _friendly_error(
+                last_error,
+                rows,
+                live=live,
+                images_only=images_only,
+                clients_tried=[label for label, _ in errors],
+            )
+        )
 
     if "entries" in info and info["entries"]:
         info = info["entries"][0]
@@ -421,9 +558,24 @@ def _downloaded_path(info: dict, work_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _friendly_error(raw: str, formats: list[FormatRow] | None = None, *, live: bool = False) -> str:
+def _friendly_error(
+    raw: str,
+    formats: list[FormatRow] | None = None,
+    *,
+    live: bool = False,
+    images_only: bool = False,
+    clients_tried: list[str] | None = None,
+) -> str:
     lowered = raw.lower()
     if _is_format_error(lowered):
+        tried = ", ".join(clients_tried or ()) or "default client"
+        if images_only:
+            return (
+                "YouTube answered with storyboard images only — no video/audio stream. "
+                "That is the signature of a throttled IP or a stale cookie session (YouTube's "
+                f"proof-of-origin check). Players tried: {tried}. Fix: set YT_PROXY to a "
+                "residential proxy, or export YT_COOKIES again from a fresh browser session."
+            )
         listed = ", ".join(f"{row.id}={row.ext}/{row.res}" for row in (formats or [])[:6])
         hint = (
             " This is a live stream, and its formats change while it runs — try again after "
@@ -433,7 +585,7 @@ def _friendly_error(raw: str, formats: list[FormatRow] | None = None, *, live: b
         )
         return (
             "YouTube did not offer a format this build can download. "
-            f"Formats it listed: {listed or 'none'}.{hint}"
+            f"Formats it listed: {listed or 'none'}; players tried: {tried}.{hint}"
         )
     if "sign in to confirm" in lowered or "bot" in lowered and "sign in" in lowered:
         return (

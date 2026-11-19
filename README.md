@@ -273,7 +273,8 @@ Poori list: `python -m clipper --help`
 | Problem | Hal |
 |---|---|
 | `Sign in to confirm you're not a bot` | Browser se `cookies.txt` export karein aur `YT_COOKIES` secret mein daal dein (raw ya base64). Check karne ke liye: `python -m clipper.cookies --check cookies.txt --test`. Details: [docs/SETUP.md](docs/SETUP.md#youtube-cookies) |
-| `Requested format is not available` | Ab khud handle hota hai (best → best → b fallback). Log mein `formats offered for …` table dekhein; `max_height` kam karein ya baad mein dobara try karein |
+| `Requested format is not available` | Ab khud handle hota hai: default client → `android` → `tv` → `web_safari` → `ios` → `mweb` → `best` → `b`, aur cookies ke sath ek cookie-free try bhi |
+| `Formats it listed: none` / "storyboard images only" | YouTube ne sirf thumbnails diye, asli stream nahi. Yani is runner ke IP/cookie session par **proof-of-origin (PO token)** check lag raha hai. Hal: `YT_PROXY` (residential proxy) set karein, ya `YT_COOKIES` naye browser session se dobara export karein. Artifact mein `out/formats.txt` dekhein — har koshish ki asli wajah wahan likhi hoti hai |
 | Live stream (`/live/...`) | Live par formats badalte rehte hain. Stream khatam hone ke baad `https://www.youtube.com/watch?v=ID` se chalayein |
 | `YouTube did not offer a format` (report mein) | Woh video sirf aise format de raha hai jo download nahi ho sakte (kabhi live/SABR). Log ki formats table bhejein — proxy ya doosra link try karein |
 | Formats dekhne hain (local) | `python -m clipper --list-formats --url "link"` |

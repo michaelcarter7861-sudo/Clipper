@@ -51,6 +51,15 @@ prints a table (`id / ext / res / fps / codec / size`) and the same rows land in
 `Requested format is not available`, the pipeline retries by itself with `best`, then `b` —
 so a narrow format selector can no longer kill a run.
 
+The probe asks for **all** formats (`format: all`), so a video that only answers with
+storyboards is visible instead of looking like "no formats at all". When the first try fails
+with a format error, the ladder switches **player client** (`android` → `tv` → `web_safari` →
+`ios` → `mweb`), then falls back to `best` / `b`, and finally retries without cookies when a
+cookie file is present — YouTube answers differently per client, and a storyboard-only reply
+is the classic sign of a throttled IP or a stale session (PO-token check). Every attempt, plus
+the raw format list, is appended to `out/formats.txt` so a failed run can be diagnosed from
+the artifact alone.
+
 Live links (`/live/…`) are fetched from the start of the stream (warning in the log), and
 formats on a running stream keep changing — clipping an already-finished stream
 (`/watch?v=…`) is far more reliable. Upcoming streams are rejected with a clear message.

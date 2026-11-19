@@ -10,6 +10,7 @@ import pytest
 
 from clipper.config import Settings
 from clipper.youtube import (
+    PLAYER_CLIENTS,
     DownloadError,
     FormatRow,
     _attempts,
@@ -73,6 +74,8 @@ class FakeYoutubeDL:
 
     probe_info: dict | None = None
     script: list = []
+    fail_all: Exception | None = None
+    on_download = None  # optional hook: (opts) -> info dict or Exception
 
     def __init__(self, opts: dict) -> None:
         self.opts = opts
@@ -90,7 +93,12 @@ class FakeYoutubeDL:
             if isinstance(FakeYoutubeDL.probe_info, Exception):
                 raise FakeYoutubeDL.probe_info
             return FakeYoutubeDL.probe_info
-        item = FakeYoutubeDL.script.pop(0) if FakeYoutubeDL.script else INFO
+        if FakeYoutubeDL.on_download is not None:
+            item = FakeYoutubeDL.on_download(self.opts)
+        elif FakeYoutubeDL.script:
+            item = FakeYoutubeDL.script.pop(0)
+        else:
+            item = FakeYoutubeDL.fail_all or INFO
         if isinstance(item, Exception):
             raise item
         return item
@@ -101,6 +109,8 @@ def fake_ytdlp(monkeypatch):
     FakeYoutubeDL.calls = []
     FakeYoutubeDL.probe_info = INFO
     FakeYoutubeDL.script = []
+    FakeYoutubeDL.fail_all = None
+    FakeYoutubeDL.on_download = None
     module = types.ModuleType("yt_dlp")
     module.YoutubeDL = FakeYoutubeDL
     module.version = types.SimpleNamespace(__version__="test")
@@ -126,8 +136,22 @@ def test_opts_for_probe_and_live(tmp_path: Path):
     live = _ydl_opts(make_settings(), tmp_path, format_selector="b", live_from_start=True)
 
     assert probe["skip_download"] is True
+    assert probe["format"] == "all"  # list every format, even when only images exist
     assert live["format"] == "b"
     assert live["live_from_start"] is True
+
+
+def test_opts_can_pin_a_player_client_and_drop_cookies(tmp_path: Path):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+    settings = make_settings(cookies=cookies)
+
+    pinned = _ydl_opts(settings, tmp_path, player_client="android")
+    bare = _ydl_opts(settings, tmp_path, player_client="android", drop_cookies=True)
+
+    assert pinned["extractor_args"]["youtube"]["player_client"] == ["android"]
+    assert pinned["cookiefile"] == str(cookies)
+    assert "cookiefile" not in bare
 
 
 def test_opts_carry_proxy_and_cookies(tmp_path: Path):
@@ -178,9 +202,17 @@ def test_format_table_survives_an_empty_list():
     assert "no downloadable format" in format_table([])[0]
 
 
-def test_attempts_start_with_the_constrained_pick_for_vod_and_loose_for_live():
-    assert [selector for _, selector in _attempts(False)] == ["bv*+ba/b", "best", "b"]
-    assert [selector for _, selector in _attempts(True)] == ["b", "best", "bv*+ba/b"]
+def test_attempts_start_with_the_default_client_then_escalate():
+    vod = _attempts(False)
+    live = _attempts(True, has_cookies=True)
+
+    assert vod[0].selector == "bv*+ba/b"
+    assert vod[0].player_client is None
+    assert [attempt.player_client for attempt in vod[1:1 + len(PLAYER_CLIENTS)]] == list(PLAYER_CLIENTS)
+    assert live[0].selector == "b"  # live streams: ask for a single ready-made file first
+    # cookie-free attempt only exists when there are cookies, and it comes last
+    assert live[-1].drop_cookies is True and live[-1].player_client == "android"
+    assert not any(attempt.drop_cookies for attempt in vod)
 
 
 # --------------------------------------------------------------------------- #
@@ -190,40 +222,90 @@ def test_download_lists_formats_and_picks_the_first_working_one(fake_ytdlp, tmp_
     (tmp_path / "source.mp4").write_bytes(b"video")
     fake_ytdlp.script = [
         RuntimeError("ERROR: [youtube] abc123def45: Requested format is not available"),
+        RuntimeError("ERROR: [youtube] abc123def45: Requested format is not available"),
         INFO,
     ]
 
-    source = download(URL, tmp_path, make_settings())
+    source = download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
 
     assert source.video_id == "abc123def45"
     assert source.chosen_format == "137"
     assert [row["id"] for row in source.formats] == ["137", "140"]
-    # probe first (no download), then two attempts: constrained pick, then "best"
+    # probe first (no download), then the ladder keeps the selector but switches player
     assert fake_ytdlp.calls[0]["download"] is False
-    attempts = [call["opts"]["format"] for call in fake_ytdlp.calls[1:]]
-    assert attempts == ["bv*+ba/b", "best"]
+    assert fake_ytdlp.calls[0]["opts"]["format"] == "all"
+    attempts = [call["opts"] for call in fake_ytdlp.calls[1:]]
+    assert [opts["format"] for opts in attempts] == ["bv*+ba/b", "bv*+ba/b", "bv*+ba/b"]
+    assert "extractor_args" not in attempts[0]
+    assert attempts[1]["extractor_args"]["youtube"]["player_client"] == ["android"]
+
+
+def test_download_switches_player_client_when_the_first_one_has_no_stream(fake_ytdlp, tmp_path: Path):
+    (tmp_path / "source.mp4").write_bytes(b"video")
+
+    def on_download(opts):
+        if "extractor_args" not in opts:
+            return RuntimeError("ERROR: Requested format is not available")
+        return INFO
+
+    fake_ytdlp.on_download = on_download
+
+    source = download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
+
+    assert source.video_id == "abc123def45"
+    assert "extractor_args" not in fake_ytdlp.calls[1]["opts"]
+    assert fake_ytdlp.calls[2]["opts"]["extractor_args"]["youtube"]["player_client"] == ["android"]
 
 
 def test_download_mentions_the_formats_it_saw_when_everything_fails(fake_ytdlp, tmp_path: Path):
-    fake_ytdlp.script = [
-        RuntimeError("ERROR: Requested format is not available"),
-        RuntimeError("ERROR: Requested format is not available"),
-        RuntimeError("ERROR: Requested format is not available"),
-    ]
+    fake_ytdlp.fail_all = RuntimeError("ERROR: Requested format is not available")
+    out_dir = tmp_path / "out"
 
     with pytest.raises(DownloadError) as excinfo:
-        download(URL, tmp_path, make_settings())
+        download(URL, tmp_path, make_settings(out_dir=out_dir))
 
     message = str(excinfo.value)
     assert "did not offer a format" in message
     assert "137=mp4/1080p" in message
+    assert "players tried" in message
+
+
+def test_download_reports_storyboards_as_a_throttled_ip(fake_ytdlp, tmp_path: Path):
+    fake_ytdlp.probe_info = {
+        "id": "abc123def45",
+        "title": "Test video",
+        "duration": 0,
+        "live_status": "was_live",
+        "formats": [{"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none"}],
+    }
+    fake_ytdlp.fail_all = RuntimeError("ERROR: Requested format is not available")
+
+    with pytest.raises(DownloadError) as excinfo:
+        download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
+
+    message = str(excinfo.value)
+    assert "storyboard images only" in message
+    assert "YT_PROXY" in message
+
+
+def test_a_failed_download_leaves_a_formats_report(fake_ytdlp, tmp_path: Path):
+    fake_ytdlp.fail_all = RuntimeError("ERROR: Requested format is not available")
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(DownloadError):
+        download(URL, tmp_path, make_settings(out_dir=out_dir))
+
+    report = (out_dir / "formats.txt").read_text(encoding="utf-8")
+    assert URL in report
+    assert "formats listed by yt-dlp: 3" in report
+    assert "default client" in report
 
 
 def test_download_retries_a_live_stream_from_the_start(fake_ytdlp, tmp_path: Path):
     (tmp_path / "source.mp4").write_bytes(b"video")
     fake_ytdlp.probe_info = dict(INFO, live_status="is_live")
 
-    source = download(URL, tmp_path, make_settings())
+    source = download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
 
     assert source.live_status == "is_live"
     assert fake_ytdlp.calls[1]["opts"]["format"] == "b"
@@ -234,7 +316,7 @@ def test_upcoming_streams_are_rejected_with_a_clear_message(fake_ytdlp, tmp_path
     fake_ytdlp.probe_info = dict(INFO, live_status="is_upcoming")
 
     with pytest.raises(DownloadError, match="upcoming"):
-        download(URL, tmp_path, make_settings())
+        download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
 
     assert len(fake_ytdlp.calls) == 1  # only the probe ran
 
@@ -243,14 +325,14 @@ def test_bot_check_is_fatal_and_points_at_cookies(fake_ytdlp, tmp_path: Path):
     fake_ytdlp.probe_info = RuntimeError("ERROR: Sign in to confirm you're not a bot")
 
     with pytest.raises(DownloadError, match="cookies.txt"):
-        download(URL, tmp_path, make_settings())
+        download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
 
 
 def test_a_flaky_probe_still_lets_the_download_run(fake_ytdlp, tmp_path: Path):
     (tmp_path / "source.mp4").write_bytes(b"video")
     fake_ytdlp.probe_info = RuntimeError("something odd happened")
 
-    source = download(URL, tmp_path, make_settings())
+    source = download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
 
     assert source.video_id == "abc123def45"
     assert fake_ytdlp.calls[1]["download"] is True
@@ -282,6 +364,29 @@ def test_friendly_error_for_format_problems_mentions_live_and_formats():
     assert "proxy" in vod.lower()
     assert "live stream" in live
     assert "did not offer a format" in _friendly_error("Requested format is not available")
+
+
+def test_friendly_error_explains_storyboard_only_answers():
+    message = _friendly_error(
+        "ERROR: Requested format is not available",
+        [],
+        images_only=True,
+        clients_tried=["default client", "client android"],
+    )
+
+    assert "storyboard images only" in message
+    assert "client android" in message
+    assert "YT_PROXY" in message and "YT_COOKIES" in message
+
+
+def test_list_formats_explains_storyboard_only_answers(fake_ytdlp):
+    fake_ytdlp.probe_info = {
+        "id": "abc123def45",
+        "title": "Test video",
+        "formats": [{"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none"}],
+    }
+
+    assert list_formats(URL, make_settings()) == 1
 
 
 def test_friendly_error_keeps_the_old_cases():

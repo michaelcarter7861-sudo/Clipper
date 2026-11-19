@@ -232,7 +232,7 @@ jobs:
                   print(f"| {title} | {chosen} | {best} | {count} | {live} |")
           PY
           if [ -f /tmp/clipper.log ]; then
-            errors=$(grep -E "ERROR|Traceback" /tmp/clipper.log | tail -5 || true)
+            errors=$(grep -E "ERROR|Traceback|storyboard" /tmp/clipper.log | tail -8 || true)
             if [ -n "$errors" ]; then
               {
                 echo ""
@@ -244,6 +244,10 @@ jobs:
                 echo "</details>"
               } >> "$summary"
             fi
+          fi
+          if [ -f out/formats.txt ]; then
+            echo "" >> "$summary"
+            echo "Formats YouTube listed (and every attempt): see \`out/formats.txt\` in the artifact." >> "$summary"
           fi
 
       - name: Publish clips as a GitHub Release
