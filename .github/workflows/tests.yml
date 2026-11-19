@@ -37,7 +37,34 @@ jobs:
         run: ruff check clipper tests
 
       - name: Unit and integration tests
-        run: pytest -q
+        run: |
+          set +e
+          pytest -q --tb=short > /tmp/pytest.log 2>&1
+          status=$?
+          tail -80 /tmp/pytest.log
+          if [ "$status" -ne 0 ]; then
+            python - <<'PY'
+          import pathlib
+          lines = pathlib.Path("/tmp/pytest.log").read_text(errors="replace").splitlines()
+          picks = [ln for ln in lines if ln.startswith(("FAILED", "ERROR", "!!!"))][:8]
+          tail = lines[-25:]
+          for chunk in (picks, tail):
+              msg = "%0A".join(
+                  ln.replace("%", "%25").replace("\r", "") for ln in chunk if ln.strip()
+              )
+              if msg:
+                  print(f"::error::{msg}")
+          PY
+          fi
+          exit $status
+
+      - name: Upload pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log
+          path: /tmp/pytest.log
+          if-no-files-found: ignore
 
   workflow-sanity:
     runs-on: ubuntu-latest
