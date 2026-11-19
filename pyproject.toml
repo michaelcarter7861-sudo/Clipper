@@ -21,6 +21,7 @@ packages = ["clipper"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q"
 markers = [
     "ffmpeg: needs a real ffmpeg binary on PATH",
