@@ -1,0 +1,2 @@
+# Core runtime — everything needed for download, captioning and rendering.
+yt-dlp>=2024.10.7

@@ -1,0 +1,192 @@
+name: Clipper · YouTube → viral clips
+
+# Paste a YouTube link, get back vertical clips with burned-in captions.
+# Runs are manual on purpose: clipping burns Actions minutes and YouTube
+# downloads are rate-limited.
+
+run-name: Clipper · ${{ inputs.clips }} clip(s) from ${{ github.event.inputs.urls }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "YouTube link(s) — one per line or comma separated"
+        required: true
+        type: string
+      clips:
+        description: "How many clips per video"
+        default: "3"
+        type: string
+      min_duration:
+        description: "Minimum clip length (seconds)"
+        default: "18"
+        type: string
+      max_duration:
+        description: "Maximum clip length (seconds)"
+        default: "60"
+        type: string
+      caption_style:
+        description: "Caption style"
+        type: choice
+        default: karaoke
+        options: [karaoke, plain, none]
+      fit:
+        description: "How to fill a 9:16 frame"
+        type: choice
+        default: crop
+        options: [crop, blur, pad]
+      language:
+        description: "Preferred language (auto, en, hi, ur, …)"
+        default: auto
+        type: string
+      whisper_model:
+        description: "Whisper model when a video has no subtitles"
+        type: choice
+        default: base
+        options: [tiny, base, small, medium]
+      llm_backend:
+        description: "Who picks the viral moments"
+        type: choice
+        default: auto
+        options: [auto, claude-code, api, heuristic]
+      publish_release:
+        description: "Also publish the clips as a GitHub Release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clipper-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  CLIP_WORK_DIR: ${{ github.workspace }}/.clipper-work
+  CAPTION_FONT: DejaVu Sans
+
+jobs:
+  clip:
+    name: Cut clips
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-whisper.txt
+
+      - name: Install ffmpeg and fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fonts-liberation
+          ffmpeg -version | head -n 1
+
+      - name: Cache the Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-${{ inputs.whisper_model }}-${{ runner.os }}
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-whisper.txt
+
+      - name: Install Claude Code
+        if: ${{ inputs.llm_backend == 'auto' || inputs.llm_backend == 'claude-code' }}
+        run: npm install -g @anthropic-ai/claude-code && claude --version
+
+      - name: Prepare YouTube cookies (optional)
+        env:
+          COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -z "$COOKIES" ]; then
+            echo "No YT_COOKIES secret set — trying without cookies."
+            exit 0
+          fi
+          mkdir -p "$CLIP_WORK_DIR"
+          printf '%s' "$COOKIES" > "$CLIP_WORK_DIR/cookies.raw"
+          if base64 -d "$CLIP_WORK_DIR/cookies.raw" > "$CLIP_WORK_DIR/cookies.txt" 2>/dev/null \
+             && grep -q "$(printf '\t')" "$CLIP_WORK_DIR/cookies.txt"; then
+            echo "Cookie secret was base64."
+          else
+            cp "$CLIP_WORK_DIR/cookies.raw" "$CLIP_WORK_DIR/cookies.txt"
+            echo "Cookie secret used as raw text."
+          fi
+          rm -f "$CLIP_WORK_DIR/cookies.raw"
+          chmod 600 "$CLIP_WORK_DIR/cookies.txt"
+          echo "CLIP_COOKIES=$CLIP_WORK_DIR/cookies.txt" >> "$GITHUB_ENV"
+
+      - name: Cut clips
+        env:
+          CLIP_URLS: ${{ inputs.urls }}
+          CLIP_COUNT: ${{ inputs.clips }}
+          CLIP_MIN_DURATION: ${{ inputs.min_duration }}
+          CLIP_MAX_DURATION: ${{ inputs.max_duration }}
+          CAPTION_STYLE: ${{ inputs.caption_style }}
+          CLIP_FIT: ${{ inputs.fit }}
+          CLIP_LANGUAGE: ${{ inputs.language }}
+          WHISPER_MODEL: ${{ inputs.whisper_model }}
+          LLM_BACKEND: ${{ inputs.llm_backend }}
+          # Free LLM endpoints — set whichever you have (all have free tiers).
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          # …or a self-hosted FreeLLMAPI router / any OpenAI-compatible endpoint
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || secrets.LLM_MODEL }}
+          # …or a ready Anthropic-compatible endpoint for Claude Code
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || secrets.CLAUDE_MODEL }}
+        run: |
+          if [ -z "${CLIP_URLS//[[:space:]]/}" ]; then
+            echo "::error::Add at least one YouTube link in the 'urls' input."
+            exit 1
+          fi
+          python -m clipper --doctor || true
+          python -m clipper
+
+      - name: Upload clips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clips
+          path: out/
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: warn
+
+      - name: Publish clips as a GitHub Release
+        if: ${{ inputs.publish_release == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t files < <(find out -name '*.mp4' -size +0c | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No clips to publish."
+            exit 0
+          fi
+          notes=out/report.md
+          [ -f "$notes" ] || { echo "Clipper run $(date -u)" > /tmp/notes.md; notes=/tmp/notes.md; }
+          tag="clips-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$tag" "${files[@]}" \
+            --title "Clips · $(date -u +%Y-%m-%d)" \
+            --notes-file "$notes" \
+            --latest=false
+          echo "Published $tag with ${#files[@]} clip(s)."
