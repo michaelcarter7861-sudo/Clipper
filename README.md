@@ -427,6 +427,44 @@ Hare clip ke sath likha jata hai: `TITLE`, `HOOK`, `CAPTION`, hashtags, `SOURCE`
 timestamps. LLM backend caption + hashtags deta hai (`caption`, `hashtags` uske JSON mein);
 heuristic mode mein sirf title/hook/source.
 
+### YouTube link, koi proxy nahi — 2026-11-20 ka naapa hua sach
+
+Ek asli link (`youtu.be/DENbjnmSems`) par GitHub runner se ye sab try kiya gaya, aur sab
+ek hi jagah rukte hain: YouTube runner ke datacenter IP ko "Sign in to confirm you're not a
+bot" kehta hai.
+
+| Koshish | Natija |
+|---|---|
+| yt-dlp ke 8 clients (default, android, tv, ios, mweb, web_safari, best, best single file) | `Sign in to confirm you're not a bot` |
+| obscura browser (raw page + us ki cookies) | `LOGIN_REQUIRED`, 0 stream, 9 anonymous cookie |
+| **PO token provider** (`bgutil-ytdlp-pot-provider` + docker provider, v2.0.2) | wahi bot check — token se ye gate nahi khulta |
+| 20+ public Invidious / Piped instances (python **aur** curl, API + media URL) | 403/Cloudflare/dead; ek instance (`pipedapi.ducks.party`) API deta hai magar us ke media URLs hamare IP par 401/404, kyunki googlevideo URL **instance ke IP** ke liye sign hota hai |
+| cobalt instances | auth maangte hain ya Cloudflare 502 |
+
+Yani **bina cookies ya residential proxy ke YouTube link se clips nahi banenge** — ye Clipper
+ka bug nahi, YouTube ka IP gate hai. Aage jo cheez **aaj kaam karti hai**:
+
+### Jo chal raha hai: file link (no proxy, no cookies)
+
+Koi bhi URL jo seedha media file deta hai — GitHub Release asset, Dropbox `?dl=1`, S3,
+apna server. Clipper aise link ko yt-dlp ke paas bhejta hi nahi, khud bytes utaarta hai
+(`_direct_file_fallback`), phir wohi pipeline chalati hai.
+
+```text
+urls: https://github.com/<you>/<repo>/releases/download/clips-.../my-video.mp4
+```
+
+Proof (aaj ka run): [`44742950408`](https://github.com/michaelcarter7861-sudo/Clipper/actions/runs/44742950408)
+— green, Release `clips-20261120-131921` mein 4.7 MB clip. Ye run ek Release asset se khud
+clip banata hai.
+
+### Cookies — YouTube link ka wo raasta jo chalta hai
+
+`docs/SETUP.md` → *YouTube cookies*: `cookies.txt` banayein (extension, 30 second), base64
+karein, `YT_COOKIES` secret mein paste. Clipper khud check karta hai ke YouTube us session ko
+qubool karta hai ya nahi. (Is sandbox ke paas kisi ka account nahi, is liye cookies ka raasta
+yahan *measured* nahi — code path mojood hai, test aap ke account se hoga.)
+
 ### Jab run kuch na banaye — "prove it" switches
 
 Zero clips ka matlab failure hai, kamyabi nahi: `Run summary` ab job ko red kar deta hai.

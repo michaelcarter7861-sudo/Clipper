@@ -1040,10 +1040,11 @@ def _friendly_error(
     )
     if images_only:
         return (
-            "YouTube answered with storyboard images only — no video/audio stream. GitHub-hosted "
-            "runners hit this on their datacenter IPs even with valid cookies (measured on Ubuntu, "
-            f"Windows and macOS). Players tried: {tried}. {runtime_hint} Fixes: set YT_PROXY to a "
-            "residential proxy, or give a direct video file/link instead of a YouTube URL."
+            "YouTube answered with storyboard images only — no video/audio stream. Datacenter "
+            "IPs (GitHub runners, measured on Ubuntu, Windows and macOS) get this. Players "
+            f"tried: {tried}. {runtime_hint} What works: a direct video file URL (the run "
+            "downloads the bytes itself), YT_COOKIES from a logged-in session, or a residential "
+            "YT_PROXY."
         )
     if _is_retryable(lowered):
         if _is_format_error(lowered):
