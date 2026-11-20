@@ -1,22 +1,22 @@
 os: Linux
-date: 2026-11-20T10:35:09Z
-ip: 172.185.55.187
+date: 2026-11-20T10:40:29Z
+ip: 20.29.31.211
 proxy configured: no
 obscura 0.2.7
-10:35:11  WARNING yt-dlp: ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+10:40:32  WARNING yt-dlp: ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
 youtube: FAIL — YouTube asked this runner to prove it is not a bot. Add a cookies.txt file as the YT_COOKIES secret (see docs/SETUP.md).
 browser: PASS — obscura 0.2.7
 
 == raw obscura probes ==
 Fetching https://www.youtube.com/watch?v=aqz-KE-bpKQ...
-[2m2026-11-20T10:35:12.768375Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_addEventListener is not a function
+[2m2026-11-20T10:40:33.421919Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_addEventListener is not a function
     at Gb (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js:52:38)
-/home/runner/work/_temp/3ea448a6-f608-4e65-b9b2-b207aa4ebf85.sh: line 37:  2460 Aborted                    (core dumped) obscura fetch "$URL" --eval "document.title" --timeout 60 2>&1
-      2461 Done                       | head -n 3
+/home/runner/work/_temp/81f27942-b2ea-4535-9924-dd99d3615434.sh: line 37:  2254 Aborted                    (core dumped) obscura fetch "$URL" --eval "document.title" --timeout 60 2>&1
+      2255 Done                       | head -n 3
 exit: 134
 Fetching https://www.youtube.com/watch?v=aqz-KE-bpKQ...
-[2m2026-11-20T10:35:18.620477Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_ad/home/runner/work/_temp/3ea448a6-f608-4e65-b9b2-b207aa4ebf85.sh: line 37:  2487 Aborted                    (core dumped) obscura fetch "$URL" --dump cookies --timeout 60 2>&1
-      2488 Done                       | head -c 300
+[2m2026-11-20T10:40:37.719958Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_ad/home/runner/work/_temp/81f27942-b2ea-4535-9924-dd99d3615434.sh: line 37:  2278 Aborted                    (core dumped) obscura fetch "$URL" --dump cookies --timeout 60 2>&1
+      2279 Done                       | head -c 300
 
 Usage: obscura fetch [OPTIONS] [URL]
 
@@ -45,7 +45,7 @@ Options:
           Number of URLs fetched concurrently in batch mode. Ignored without --file
 
 == browser player response ==
-ok: True | elapsed: 9.9 s
+ok: True | elapsed: 9.3 s
 browser says playability=LOGIN_REQUIRED, 0 stream(s) — Sign in to confirm you’re not a bot
 cookies: 9
 video stream: None None
