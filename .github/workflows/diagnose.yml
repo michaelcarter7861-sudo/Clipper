@@ -1,8 +1,10 @@
 name: Clipper · diagnose a link
 
-# Answers one question: can a GitHub runner download this link at all?
-# It prints our own checks, then asks yt-dlp directly with every player client, and
-# publishes the result to diagnostics/last-run.txt so it can be read without the log.
+# Answers real questions instead of guessing:
+#   * does this runner network get a downloadable stream for the link?
+#   * does it change with cookies / without cookies?
+#   * is one GitHub runner OS luckier than another?
+# The result is published to diagnostics/<os>.txt so it can be read without the log.
 
 on:
   workflow_dispatch:
@@ -19,13 +21,17 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
-    # push runs happen only when the commit message asks for one, so normal pushes stay quiet
+  probe:
+    # push runs happen only when the commit message asks for one
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
       contains(github.event.head_commit.message, '[diagnose]') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
@@ -33,70 +39,82 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
 
-      - name: Install ffmpeg and fonts
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
-          ffmpeg -version | head -n 1
+      - name: Install yt-dlp
+        shell: bash
+        run: python -m pip install --quiet --upgrade yt-dlp
 
-      - name: Install a JS runtime for yt-dlp
-        run: |
-          npm install -g deno || echo "::warning::deno install failed"
-          deno --version || true
-          node --version || true
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Collect diagnostics
+      - name: Ask YouTube what it offers (cookies and no cookies)
+        shell: bash
         env:
           URL: ${{ github.event.inputs.url || 'https://youtu.be/DENbjnmSems' }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
           mkdir -p diagnostics
-          report=diagnostics/last-run.txt
+          report="diagnostics/${RUNNER_OS}.txt"
+
+          if [ -n "$YT_COOKIES" ]; then
+            python - <<'PY'
+          import base64, os, pathlib
+          raw = os.environ["YT_COOKIES"].strip()
+          if not raw.startswith("# Netscape"):
+              try:
+                  raw = base64.b64decode("".join(raw.split())).decode("utf-8")
+              except Exception:
+                  pass
+          pathlib.Path("cookies.txt").write_text(raw, encoding="utf-8")
+          print("cookies.txt written:", len(raw), "bytes")
+          PY
+          else
+            echo "no YT_COOKIES secret available for this run"
+          fi
+
           {
-            echo "url: $URL"
+            echo "os: ${RUNNER_OS}"
             echo "date: $(date -u +%FT%TZ)"
-            echo "runner ip: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
-            echo
-            echo "== versions =="
-            python --version
+            echo "ip: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
             python -c "import yt_dlp; print('yt-dlp', yt_dlp.version.__version__)" || true
-            (deno --version | head -1) || echo "deno: missing"
-            node --version || echo "node: missing"
             echo
-            echo "== clipper --check-youtube =="
-            python -m clipper --check-youtube || true
-            echo
-            echo "== clipper --list-formats =="
-            python -m clipper --list-formats --url "$URL" || true
-            echo
-            for client in default android ios tv web_safari mweb tv_embedded; do
-              echo "== yt-dlp -F (player_client=$client) =="
-              timeout 120 yt-dlp -F --no-warnings \
-                --extractor-args "youtube:player_client=$client" "$URL" 2>&1 | head -n 25 || true
-              echo
+            for mode in cookies nocookie; do
+              args=""
+              if [ "$mode" = "cookies" ] && [ -f cookies.txt ]; then
+                args="--cookies cookies.txt"
+              elif [ "$mode" = "cookies" ]; then
+                continue
+              fi
+              for client in default tv android web_safari; do
+                echo "== ${mode} · client=${client} =="
+                yt-dlp -F --no-warnings $args \
+                  --extractor-args "youtube:player_client=${client}" "$URL" 2>&1 | head -n 22 || true
+                echo
+              done
             done
-            echo "== yt-dlp -f b (real download, 90 s cap) =="
-            timeout 90 yt-dlp -f b --no-warnings -o "/tmp/dl.%(ext)s" "$URL" 2>&1 | tail -n 6 || true
-            ls -l /tmp/dl.* 2>/dev/null || echo "no file downloaded"
-            echo
+            echo "== download attempt (cookies, best) =="
+            if [ -f cookies.txt ]; then
+              yt-dlp -f b --no-warnings --cookies cookies.txt \
+                -o "dl.%(ext)s" --max-filesize 20M "$URL" 2>&1 | tail -n 8 || true
+              ls -l dl.* 2>/dev/null || echo "no file downloaded"
+            fi
           } >> "$report" 2>&1
+
           cat "$report"
 
       - name: Publish the report on this branch
+        shell: bash
         run: |
           git config user.name "clipper-diagnostics"
           git config user.email "clipper-diagnostics@users.noreply.github.com"
-          git add diagnostics/last-run.txt
+          git add diagnostics
           if git diff --cached --quiet; then
             echo "nothing new to publish"
             exit 0
           fi
-          git commit -m "diagnostics: $(date -u +%FT%TZ) [skip ci]"
-          git push
+          git commit -m "diagnostics (${RUNNER_OS}) [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+              echo "published"
+              break
+            fi
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 5
+          done
