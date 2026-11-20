@@ -43,13 +43,13 @@ def curl_json(url: str) -> dict:
         return {}
 
 
-def curl_code(url: str, extra: list[str] | None = None) -> str:
-    command = [
-        "curl", "-sS", "-o", "/tmp/probe-media.bin", "-w", "%{http_code}", "-m", "25",
-        "-A", UA, "-r", "0-2047",
-        "-H", "Origin: https://www.youtube.com", "-H", "Referer: https://www.youtube.com/",
-        *(extra or []), url,
-    ]
+def curl_code(url: str, extra: list[str] | None = None, *, agent: bool = True, rng: bool = True) -> str:
+    command = ["curl", "-sS", "-o", "/tmp/probe-media.bin", "-w", "%{http_code}", "-m", "25"]
+    if agent:
+        command += ["-A", UA]
+    if rng:
+        command += ["-r", "0-2047"]
+    command += [*(extra or []), url]
     result = subprocess.run(command, capture_output=True, text=True)
     size = 0
     try:
@@ -83,6 +83,19 @@ def main() -> int:
         print("  no streams listed")
         return 0
 
+    # Some instances already hand back proxied URLs. Those must be used unchanged —
+    # wrapping them again yields 404 — so test the header combinations on them first.
+    proxied = [(label, media) for label, media in streams if proxy and proxy.split("//")[-1].split("/")[0] in media]
+    for label, media in proxied[:2]:
+        print(f"\n  -- already-proxied stream {label} — header variants --")
+        for name, extra, agent, rng in [
+            ("plain", None, False, False),
+            ("ua-only", None, True, False),
+            ("ua+range", None, True, True),
+            ("ua+range+referer", ["-H", "Referer: https://www.youtube.com/"], True, True),
+        ]:
+            print(f"     {name:<18} {curl_code(media, extra, agent=agent, rng=rng)}")
+
     host_of_api = urllib.parse.urlsplit(api).netloc
     domain = ".".join(host_of_api.split(".")[-2:])  # ducks.party
     for label, media in streams[:3]:
@@ -91,6 +104,7 @@ def main() -> int:
         print(f"\n  -- stream {label} ({parts.netloc}) --")
         candidates: list[tuple[str, str]] = [
             ("direct", media),
+            ("direct-no-headers", media),
             ("proxy-path", f"{proxy.rstrip('/')}/{parts.netloc}{tail}" if proxy else ""),
             ("proxy-encoded", f"{proxy.rstrip('/')}/{urllib.parse.quote(media, safe='')}" if proxy else ""),
             ("proxy-noscheme", f"{proxy.rstrip('/')}/{media.split('://', 1)[-1]}" if proxy else ""),
@@ -99,7 +113,10 @@ def main() -> int:
         for name, candidate in candidates:
             if not candidate:
                 continue
-            print(f"     {name:<16} {curl_code(candidate)}")
+            if name == "direct-no-headers":
+                print(f"     {name:<18} {curl_code(candidate, agent=False, rng=False)}")
+            else:
+                print(f"     {name:<18} {curl_code(candidate)}")
     return 0
 
 
