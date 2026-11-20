@@ -793,3 +793,173 @@ fail  https://cobalt.api.timelessnesses.me          <urlopen error [SSL: CERTIFI
 
 == worked ==
 piped:https://pipedapi.ducks.party
+os: Linux
+date: 2026-11-20T12:44:29Z
+ip: 9.234.13.245
+proxy configured: no
+yt-dlp 2026.10.26
+
+== cookies · client=default ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading web embedded client config
+[youtube] aqz-KE-bpKQ: Downloading player 6b3d0364-main
+[youtube] aqz-KE-bpKQ: Downloading web embedded player API JSON
+[youtube] aqz-KE-bpKQ: Downloading tv samsung player API JSON
+WARNING: Unknown codec iamf.001.001.Opus
+[info] Available formats for aqz-KE-bpKQ:
+ID  EXT   RESOLUTION FPS | PROTO | VCODEC MORE INFO
+----------------------------------------------------
+sb3 mhtml 48x27        0 | mhtml | images storyboard
+sb2 mhtml 80x45        0 | mhtml | images storyboard
+sb1 mhtml 160x90       0 | mhtml | images storyboard
+sb0 mhtml 320x180      0 | mhtml | images storyboard
+
+== cookies · client=tv ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading tv client config
+[youtube] aqz-KE-bpKQ: Downloading player 6b3d0364-main
+[youtube] aqz-KE-bpKQ: Downloading tv player API JSON
+ERROR: [youtube] aqz-KE-bpKQ: The page needs to be reloaded.
+
+== cookies · client=android ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[info] Available formats for aqz-KE-bpKQ:
+ID  EXT   RESOLUTION FPS | PROTO | VCODEC MORE INFO
+----------------------------------------------------
+sb3 mhtml 48x27        0 | mhtml | images storyboard
+sb2 mhtml 80x45        0 | mhtml | images storyboard
+sb1 mhtml 160x90       0 | mhtml | images storyboard
+sb0 mhtml 320x180      0 | mhtml | images storyboard
+
+== cookies · client=web_safari ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading web safari client config
+[youtube] aqz-KE-bpKQ: Downloading web safari player API JSON
+[info] Available formats for aqz-KE-bpKQ:
+ID  EXT   RESOLUTION FPS | PROTO | VCODEC MORE INFO
+----------------------------------------------------
+sb3 mhtml 48x27        0 | mhtml | images storyboard
+sb2 mhtml 80x45        0 | mhtml | images storyboard
+sb1 mhtml 160x90       0 | mhtml | images storyboard
+sb0 mhtml 320x180      0 | mhtml | images storyboard
+
+== nocookie · client=default ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading visionos player API JSON
+ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== nocookie · client=tv ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading tv client config
+[youtube] aqz-KE-bpKQ: Downloading player 6b3d0364-main
+[youtube] aqz-KE-bpKQ: Downloading tv player API JSON
+ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== nocookie · client=android ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading android player API JSON
+ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== nocookie · client=web_safari ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading web safari client config
+[youtube] aqz-KE-bpKQ: Downloading web safari player API JSON
+ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== download attempt (cookies, best, 20 MB cap) ==
+[youtube] Extracting URL: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+[youtube] aqz-KE-bpKQ: Downloading webpage
+[youtube] aqz-KE-bpKQ: Downloading web embedded client config
+[youtube] aqz-KE-bpKQ: Downloading player 6b3d0364-main
+[youtube] aqz-KE-bpKQ: Downloading web embedded player API JSON
+[youtube] aqz-KE-bpKQ: Downloading tv samsung player API JSON
+WARNING: Unknown codec iamf.001.001.Opus
+ERROR: [youtube] aqz-KE-bpKQ: Requested format is not available. Use --list-formats for a list of available formats
+no file downloaded
+
+== public instances ==
+== upstream probe · aqz-KE-bpKQ · https://www.youtube.com/watch?v=aqz-KE-bpKQ ==
+
+-- invidious --
+403   https://inv.nadeko.net                        Endpoint disabled
+403   https://yewtu.be                              <html> <head><title>403 Forbidden</title></head> <body> <center><h1>403 Forbi
+403   https://invidious.nerdvpn.de                  {"error":"access_denied"}
+530   https://invidious.f5.si                       error code: 1033 
+fail  https://invidious.jing.rocks                  <urlopen error [Errno -2] Name or service not known>
+403   https://iv.duti.dev                           access blocked: blocked by administrative rule 216392a3268628800f055508fb02c03d/
+502   https://invidious.reallyaweso.me              
+404   https://invidious.perennialte.ch              The requested service could not be found.  See https://perennialte.ch/services/ 
+fail  https://yt.artemislena.eu                     <urlopen error [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1011)>
+fail  https://invidious.dhusch.de                   <urlopen error [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ssl.c:1011)>
+fail  https://inv.tux.pizza                         <urlopen error timed out>
+fail  https://inv.ggtyler.dev                       <urlopen error [Errno -2] Name or service not known>
+500   https://invidious.materialio.us               This instance doesn't support using Invidious like this currently
+fail  https://invidious.privacyredirect.com         <urlopen error [Errno -5] No address associated with hostname>
+fail  https://iv.datura.network                     <urlopen error [Errno -2] Name or service not known>
+fail  https://invidious.einfachzocken.eu            <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate (_ssl.c:1011)>
+503   https://invidious.lunivers.trade              <html><body><h1>503 Service Unavailable</h1> No server is available to handle th
+502   https://invidious.private.coffee              
+404   https://invidious.adminforge.de               <!DOCTYPE html> <html lang="de" id="html-root">  <head>   <base href="/">   <met
+451   https://invidious.nikkosphere.com             
+json? https://invidious.protokolla.fi               
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Auth with
+
+-- piped --
+403   https://pipedapi.kavin.rocks                  <!DOCTYPE html> <!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <!
+403   https://pipedapi.adminforge.de                <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/st
+500   https://api.piped.private.coffee              {"error":"org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException: 
+json? https://pipedapi.reallyaweso.me               <!doctype html><meta charset=utf-8><meta content="width=device-width,initial-sca
+fail  https://pipedapi.drgns.space                  <urlopen error [Errno -2] Name or service not known>
+502   https://pipedapi.leptons.xyz                  error code: 502 
+502   https://piped-api.lunar.icu                   <html> <head><title>502 Bad Gateway</title></head> <body> <center><h1>502 Bad
+json? https://api.piped.projectsegfau.lt            Piped has shutdown
+OK    https://pipedapi.ducks.party                  streams=2   direct:HTTP401 proxy:HTTP500 title=Big Buck Bunny 60fps 4K 
+fail  https://pipedapi.nosebs.ru                    <urlopen error [Errno -2] Name or service not known>
+502   https://pipedapi.orangenet.cc                 <html> <head><title>502 Bad Gateway</title></head> <body> <center><h1>502 Bad
+fail  https://pipedapi.astartes.nl                  <urlopen error [SSL: TLSV1_UNRECOGNIZED_NAME] tlsv1 unrecognized name (_ssl.c:1011)>
+fail  https://pipedapi.076.ne.jp                    <urlopen error [Errno -2] Name or service not known>
+fail  https://piped-api.privacy.com.de              <urlopen error [Errno -2] Name or service not known>
+fail  https://pipedapi.darkness.services            <urlopen error [Errno -5] No address associated with hostname>
+
+-- cobalt --
+400   https://api.cobalt.tools                      {"status":"error","error":{"code":"error.api.auth.jwt.missing"}}
+502   https://co.eepy.today                         {"type":"https://developers.cloudflare.com/support/troubleshooting/http-status-c
+fail  https://cobalt-api.kwiatekmiki.com            <urlopen error [Errno -5] No address associated with hostname>
+fail  https://cobalt.api.timelessnesses.me          <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate (_ssl.c:1011)>
+
+== worked ==
+piped:https://pipedapi.ducks.party
+
+== public instances (curl) ==
+HTTP https://inv.nadeko.net  code=403 bytes=17
+Endpoint disabled
+HTTP https://yewtu.be  code=403 bytes=552
+<html> <head><title>403 Forbidden</title></head> <body> <center><h1>403 Forbidden</h1></center> <hr><center>openrest
+HTTP https://invidious.nerdvpn.de  code=403 bytes=25
+{"error":"access_denied"}
+HTTP https://iv.duti.dev  code=403 bytes=100
+access blocked: blocked by administrative rule 80b15a66edf4f73c3ebf3f90bdfb66c8/5c0412e5247b38dea397
+HTTP https://invidious.materialio.us  code=500 bytes=65
+This instance doesn't support using Invidious like this currently
+HTTP https://invidious.f5.si  code=530 bytes=762
+{"type":"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1033/"
+HTTP https://pipedapi.ducks.party  code=200 bytes=19318
+      media range: code=401 bytes=45
+HTTP https://api.piped.private.coffee  code=500 bytes=1357
+{"error":"org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException: YouTube probably temporarily blocked ano
+HTTP https://pipedapi.kavin.rocks  code=000 bytes=1357
+{"error":"org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException: YouTube probably temporarily blocked ano
+HTTP https://pipedapi.adminforge.de  code=301 bytes=289
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"> <html><head> <title>301 Moved
