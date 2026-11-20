@@ -253,6 +253,8 @@ out/
 --language en|hi|ur|…
 --whisper-model base
 --cookies cookies.txt     YouTube "not a bot" ke liye
+--browser obscura         yt-dlp refuse kare to asli browser ('' = band)
+--browser-stealth         browser ko fingerprint spoofing ke sath chalao (default off)
 --editing full|cuts|off   jump cuts + grade + progress bar (default full)
 --max-pause 0.45          is se lambi khamoshi cut ho jati hai
 --remove-fillers          um/uh/matlab/yaani bhi cut karo
@@ -338,6 +340,61 @@ urls = samples/facecam-sample.mp4
 
 (Repo ke andar ka path seedha chal jata hai — `samples/facecam-sample.vtt` us ka transcript hai,
 is liye is sample par Whisper ki bhi zaroorat nahi.)
+
+### Browser fallback — jab yt-dlp ko mana kar diya jaye (obscura)
+
+Runner par yt-dlp ko "Sign in to confirm you're not a bot" milta hai to Clipper ab ek **asli
+browser** se bhi poochta hai: [obscura](https://github.com/h4ckf0r0day/obscura) (Rust headless
+engine, Apache-2.0, CDP + V8, HttpOnly cookie jar).
+
+```
+Actions → Clipper · YouTube → viral clips → browser = obscura   (default)
+baat karni ho to:  browser = off
+```
+
+Do koshish, sasti pehle:
+
+1. browser ki apni cookies → `cookies.txt` → yt-dlp dobara (phone se cookies export karne ki
+   zaroorat khatam)
+2. browser ke player response ki stream URLs → seedha download, alag video/audio ho to ffmpeg se mux
+
+**Naap (GitHub runner, obscura 0.2.7, 2026-11-20, `youtu.be/DENbjnmSems`):**
+
+| Kya | Natija |
+|---|---|
+| install + `--version` | OK — `obscura 0.2.7` |
+| watch page, JS path | engine **abort** (SIGABRT, core dumped) — YouTube ka `webcomponents-sd.js` |
+| watch page, raw (JS bypass) | `playability=LOGIN_REQUIRED` — *"Sign in to confirm you're not a bot"*, **0 stream** |
+| cookies jo browser ne diye | 9 (anonymous visitor cookies, login nahi) |
+
+Yani browser se **cookies ki zaroorat khatam nahi hoti** — block runner ke IP ka hai, client ka
+nahi. Jo cheez ab bhi kaam karti hai: `YT_PROXY` (residential) ya direct file/link. Browser
+fallback code mein rehta hai (aage obscura ke naye version, ya doosri sites ke liye), aur
+`--check-youtube` us ka status bhi batata hai.
+
+### Loud moments — picker ko asli signal
+
+Har run ek ffmpeg pass mein per-second loudness naapta hai aur transcript ki un lines par
+`<<LOUD(+12dB)>>` marker lagata hai jo streamer ke apne normal se 9 dB upar hain. LLM ko yeh
+markers evidence ke tor par milte hain (faisla nahi). `signals.json` mein raw events, aur band
+karna ho to `CLIP_SIGNALS=0`.
+
+### Post file — har clip ke sath `.txt`
+
+Hare clip ke sath likha jata hai: `TITLE`, `HOOK`, `CAPTION`, hashtags, `SOURCE` aur `FROM/TO`
+timestamps. LLM backend caption + hashtags deta hai (`caption`, `hashtags` uske JSON mein);
+heuristic mode mein sirf title/hook/source.
+
+### Jab run kuch na banaye — "prove it" switches
+
+Zero clips ka matlab failure hai, kamyabi nahi: `Run summary` ab job ko red kar deta hai.
+
+- `publish_release` on → clips GitHub Release mein attach (phone se seedha download), plus
+  Release notes mein `out/` ki listing aur log ki last 40 lines.
+- `save_report` on → wahi listing + log ka tail `diagnostics/clips-<run>.txt` mein commit ho
+  jata hai, run ke baad repo mein parh lein.
+- Ek asli proof: `urls: samples/facecam-sample.mp4` (repo ke andar ka local file) → 4.7 MB
+  clip, `fit: facecam`. Details: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ### Runner ka IP block ho to (GitHub Actions ka sab se bara masla)
 

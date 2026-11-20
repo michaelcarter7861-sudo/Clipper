@@ -21,6 +21,8 @@ from .llm import ChatLLM, Provider, resolve_provider, summarise_provider
 from .log import get_logger, notice, step, summary, warning
 from .moments import ClipPlan, heuristic_clips, plan_clips
 from .render import RenderResult, doctor, render_clip
+from .signals import LoudEvent, loud_moments
+from .signals import summarise as summarise_signals
 from .subtitles import Transcript, parse_vtt
 from .transcribe import transcribe, whisper_available
 from .youtube import VideoSource, download, slugify
@@ -240,6 +242,7 @@ def choose_clips(
     settings: Settings,
     backend: Backend,
     verbatim_dir: Path,
+    loud: list[LoudEvent] | None = None,
 ) -> tuple[list[ClipPlan], str, str]:
     """Return ``(clips, method, notes)``."""
     if backend.kind == "claude-code" and backend.base_url:
@@ -267,6 +270,7 @@ def choose_clips(
             settings,
             llm=llm,
             title=source.title,
+            loud=loud,
         )
         if clips:
             return clips, method, summarise_provider(backend.provider)
@@ -291,6 +295,36 @@ def _hook_slug(text: str, fallback: str) -> str:
 def _clip_filename(plan: ClipPlan) -> str:
     slug = _hook_slug(plan.hook or plan.title, f"clip-{plan.index:02d}")
     return f"clip-{plan.index:02d}-{slug}.mp4"
+
+
+def _post_text(output: ClipOutput, source: VideoSource) -> str:
+    """The `.txt` that goes with a clip: what to post it as."""
+    plan = output.plan
+    lines = [f"TITLE: {plan.title or plan.hook or 'clip'}"]
+    if plan.hook and plan.hook != plan.title:
+        lines.append(f"HOOK: {plan.hook}")
+    if plan.caption:
+        lines += ["", "CAPTION:", plan.caption]
+    if plan.hashtags:
+        lines += ["", " ".join(plan.hashtags)]
+    lines += [
+        "",
+        f"SOURCE: {source.title}" + (f" — {source.url}" if source.url else ""),
+        f"FROM: {_clock(plan.start)} TO: {_clock(plan.end)}"
+        + (f" ({plan.duration:.0f}s)" if plan.duration else ""),
+    ]
+    details = [f"score {plan.score}"]
+    if plan.layout:
+        details.append(f"layout {plan.layout}")
+    if plan.reason:
+        details.append(plan.reason)
+    lines.append("NOTES: " + " · ".join(details))
+    return "\n".join(lines) + "\n"
+
+
+def _clock(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
 
 
 def _gallery_html(result: VideoResult, settings: Settings) -> str:
@@ -513,7 +547,20 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
         shutil.copyfile(work_dir / "transcript.json", clip_dir / "transcript.json")
         _write_json(clip_dir / "info.json", source.to_dict())
 
-        clips, method, notes = choose_clips(transcript, source, settings, backend, work_dir)
+        loud: list[LoudEvent] = []
+        if settings.signals and source.path is not None:
+            with step("Listening for loud moments"):
+                loud = loud_moments(
+                    source.path,
+                    settings,
+                    end=source.duration or transcript.duration or None,
+                )
+            log.info("audio signals: %s", summarise_signals(loud))
+            _write_json(clip_dir / "signals.json", [event.to_dict() for event in loud])
+
+        clips, method, notes = choose_clips(
+            transcript, source, settings, backend, work_dir, loud=loud
+        )
         if not clips:
             raise PipelineError("no clips passed validation")
 
@@ -537,6 +584,20 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
                     ass_dir=clip_dir,
                     dry_run=settings.dry_run,
                 )
+                if not settings.dry_run:
+                    (clip_dir / f"{target.stem}.txt").write_text(
+                        _post_text(
+                            ClipOutput(
+                                plan=plan,
+                                path=target,
+                                thumbnail=None,
+                                ass=None,
+                                layout=rendered.layout,
+                            ),
+                            source,
+                        ),
+                        encoding="utf-8",
+                    )
                 outputs.append(
                     ClipOutput(
                         plan=plan,

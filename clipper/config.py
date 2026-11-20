@@ -171,6 +171,14 @@ class Settings:
     claude_timeout: int = 900
     bridge_port: int = 0  # 0 = pick a free port
 
+    # signals
+    signals: bool = True  # loudness markers for the picker (one ffmpeg pass)
+
+    # browser (obscura) — used only when yt-dlp is refused
+    browser: str = ""
+    browser_stealth: bool = False
+    browser_timeout: int = 90
+
     # youtube
     cookies: Path | None = None
     ytdlp_extra_args: list[str] = field(default_factory=list)
@@ -207,6 +215,8 @@ class Settings:
         self.pre_roll = min(1.0, max(0.0, float(self.pre_roll)))
         self.post_roll = min(1.5, max(0.0, float(self.post_roll)))
         self.watermark = (self.watermark or "").strip()[:40]
+        self.browser = (self.browser or "").strip()
+        self.browser_timeout = max(15, min(int(self.browser_timeout), 600))
         self._apply_editing_preset()
         self.words_per_caption = max(1, min(int(self.words_per_caption), 6))
         self.width = max(240, int(self.width))
@@ -309,6 +319,10 @@ def settings_from_env(**overrides) -> Settings:
         "claude_model": env_str("CLAUDE_MODEL", "claude-sonnet-4-5"),
         "claude_timeout": env_int("CLAUDE_TIMEOUT", 900),
         "bridge_port": env_int("CLIP_BRIDGE_PORT", 0),
+        "signals": env_bool("CLIP_SIGNALS", True),
+        "browser": env_str("CLIP_BROWSER", "") or "",
+        "browser_stealth": env_bool("CLIP_BROWSER_STEALTH", False),
+        "browser_timeout": env_int("CLIP_BROWSER_TIMEOUT", 90),
         "cookies": env_str("CLIP_COOKIES"),
         "ytdlp_extra_args": env_list("YTDLP_EXTRA_ARGS"),
         "proxy": env_str("CLIP_PROXY", "") or env_str("YT_PROXY", ""),

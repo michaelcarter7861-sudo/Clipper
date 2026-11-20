@@ -10,6 +10,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .browser import (
+    browser_available,
+    fetch_page,
+    http_download,
+    pick_streams,
+    video_details,
+    write_cookies,
+)
 from .config import Settings
 from .log import get_logger
 
@@ -194,6 +202,7 @@ def _ydl_opts(
     probe: bool = False,
     player_client: str | None = None,
     drop_cookies: bool = False,
+    cookie_file: Path | None = None,
 ) -> dict:
     opts: dict = {
         "format": PROBE_FORMAT if probe else (format_selector or FORMAT_CHAIN),
@@ -220,8 +229,9 @@ def _ydl_opts(
         opts["live_from_start"] = True
     if probe:
         opts["skip_download"] = True
-    if settings.cookies and settings.cookies.exists() and not drop_cookies:
-        opts["cookiefile"] = str(settings.cookies)
+    cookies = cookie_file or settings.cookies
+    if cookies and Path(cookies).exists() and not drop_cookies:
+        opts["cookiefile"] = str(cookies)
     if settings.proxy:
         opts["proxy"] = settings.proxy
     if settings.ytdlp_extra_args:
@@ -621,6 +631,9 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
     if info is None:
+        attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
+        if attempted_browser is not None:
+            return attempted_browser
         _write_formats_report(settings.out_dir, url, probed, errors, live_state)
         message = _friendly_error(
             last_error,
@@ -638,6 +651,157 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             )
         raise DownloadError(message)
 
+    return _source_from_info(info, url, work_dir, rows, live_state)
+
+
+def _browser_fallback(
+    url: str, work_dir: Path, settings: Settings, *, probed: dict | None = None
+) -> VideoSource | None:
+    """Last resort: ask a real browser (obscura) instead of yt-dlp.
+
+    Two tries, cheapest first: the browser's own cookies for yt-dlp, then the
+    stream URLs the browser's player response carries. Returns ``None`` when the
+    browser is not installed or YouTube refuses it too — the caller then reports
+    the normal yt-dlp error, with whatever the browser said added to it.
+    """
+    ok, why = browser_available(settings)
+    if not ok:
+        log.info("browser fallback skipped: %s", why)
+        return None
+
+    log.info("yt-dlp was refused — asking the browser (%s) for this link", why)
+    storage = work_dir / "browser-profile"
+    page = fetch_page(url, settings, storage_dir=storage)
+    log.info("browser: %s", page.describe())
+    try:
+        (work_dir / "browser.json").write_text(json.dumps(page.to_dict(), indent=2), encoding="utf-8")
+    except OSError:  # pragma: no cover - diagnostics only
+        pass
+
+    cookie_file = write_cookies(page.cookies, work_dir / "browser-cookies.txt")
+    if cookie_file is not None:
+        log.info("browser holds %d cookie(s) — retrying yt-dlp with them", len(page.cookies))
+        live = _live_state(probed) == "is_live"
+        info = _download_with_cookie_file(url, work_dir, settings, cookie_file, live=live)
+        if info is not None:
+            return _source_from_info(info, url, work_dir, _format_rows(info), _live_state(info))
+
+    if page.downloadable:
+        log.info("browser's player response has stream URLs — downloading them directly")
+        return _source_from_player_response(url, page, work_dir, settings)
+
+    log.warning(
+        "the browser got no stream either (%s) — this is the network, not the code",
+        page.describe(),
+    )
+    return None
+
+
+def _download_with_cookie_file(
+    url: str, work_dir: Path, settings: Settings, cookie_file: Path, *, live: bool = False
+) -> dict | None:
+    """One yt-dlp attempt with a cookie jar the browser just wrote."""
+    try:
+        import yt_dlp
+    except ImportError:  # pragma: no cover
+        return None
+    selector = "b" if live else "bv*+ba/b"
+    try:
+        with yt_dlp.YoutubeDL(
+            _ydl_opts(
+                settings,
+                work_dir,
+                format_selector=selector,
+                live_from_start=live,
+                cookie_file=cookie_file,
+            )
+        ) as ydl:
+            return ydl.extract_info(url, download=True)
+    except Exception as exc:  # noqa: BLE001 - yt-dlp raises many types
+        log.warning("yt-dlp with browser cookies failed (%s)", _one_line(str(exc)))
+        return None
+
+
+def _source_from_player_response(
+    url: str, page, work_dir: Path, settings: Settings
+) -> VideoSource:
+    """Download the video/audio URLs the browser's player response listed."""
+    video, audio = pick_streams(page.player_response, settings.max_video_height)
+    if video is None:
+        raise DownloadError(
+            f"{url}: the browser's player response has no downloadable stream "
+            f"(playability={page.status or 'unknown'})"
+        )
+    details = video_details(page.player_response)
+    video_path = http_download(video["url"], work_dir / "browser-video.bin")
+    if audio is None:
+        target = work_dir / "source.mp4"
+        shutil.move(str(video_path), str(target))
+    else:
+        audio_path = http_download(audio["url"], work_dir / "browser-audio.bin")
+        target = _mux_with_ffmpeg(video_path, audio_path, work_dir, settings)
+    log.info("downloaded through the browser: %s", target.name)
+
+    duration = 0.0
+    try:
+        duration = float(details.get("lengthSeconds") or 0.0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    return VideoSource(
+        url=url,
+        video_id=str(details.get("videoId") or video_id_from_url(url)),
+        title=str(details.get("title") or "untitled"),
+        duration=duration,
+        uploader=str(details.get("author") or ""),
+        path=target,
+        width=int(video.get("width") or 0),
+        height=int(video.get("height") or 0),
+        info={
+            "id": details.get("videoId"),
+            "title": details.get("title"),
+            "duration": duration,
+            "uploader": details.get("author"),
+            "webpage_url": url,
+            "source": "obscura-browser",
+        },
+        chosen_format=str(video.get("itag") or video.get("formatId") or "browser"),
+    )
+
+
+def _mux_with_ffmpeg(video: Path, audio: Path, work_dir: Path, settings: Settings) -> Path:
+    """Join separate video and audio tracks without re-encoding."""
+    from .render import resolve_binary
+
+    exe = resolve_binary(settings.ffmpeg) or settings.ffmpeg
+    for suffix in (".mp4", ".mkv"):
+        target = work_dir / f"source{suffix}"
+        completed = subprocess.run(
+            [
+                exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-i", str(video), "-i", str(audio),
+                "-c", "copy", "-movflags", "+faststart", str(target),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        if completed.returncode == 0 and target.exists() and target.stat().st_size:
+            for leftover in (video, audio):
+                leftover.unlink(missing_ok=True)
+            return target
+        log.debug("mux into %s failed: %s", suffix, _one_line(completed.stderr))
+    raise DownloadError("could not join the browser's video and audio tracks with ffmpeg")
+
+
+def _source_from_info(
+    info: dict,
+    url: str,
+    work_dir: Path,
+    rows: list[FormatRow],
+    live_state: str,
+) -> VideoSource:
+    """Turn a yt-dlp info dict into a :class:`VideoSource`."""
     if "entries" in info and info["entries"]:
         info = info["entries"][0]
 

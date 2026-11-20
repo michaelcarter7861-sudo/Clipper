@@ -7,7 +7,14 @@ from pathlib import Path
 
 from clipper.config import Settings
 from clipper.moments import ClipPlan
-from clipper.pipeline import ClipOutput, VideoResult, _clip_filename, _index_html, _report_markdown
+from clipper.pipeline import (
+    ClipOutput,
+    VideoResult,
+    _clip_filename,
+    _index_html,
+    _post_text,
+    _report_markdown,
+)
 from clipper.subtitles import Transcript
 from clipper.youtube import VideoSource
 
@@ -77,3 +84,33 @@ def test_report_marks_failures(tmp_path: Path):
     )
     report = _report_markdown([result], Settings())
     assert "bot check" in report
+
+
+def test_post_text_has_title_caption_hashtags_and_source(tmp_path: Path):
+    plan = ClipPlan(
+        65.0,
+        95.0,
+        "IT ACTUALLY WORKED",
+        "It worked",
+        reason="clean payoff",
+        score=88,
+        index=2,
+        caption="Nobody saw this coming 😳 would you try it?",
+        hashtags=["#GTA6", "#shorts"],
+        layout="facecam",
+    )
+    source = VideoSource(url="https://youtu.be/abc", video_id="abc", title="A stream", duration=600)
+    text = _post_text(ClipOutput(plan, Path("clip.mp4"), None, None, layout="facecam"), source)
+    assert text.startswith("TITLE: It worked")
+    assert "HOOK: IT ACTUALLY WORKED" in text
+    assert "CAPTION:" in text and "#GTA6 #shorts" in text
+    assert "SOURCE: A stream — https://youtu.be/abc" in text
+    assert "FROM: 00:01:05 TO: 00:01:35 (30s)" in text
+    assert "score 88" in text and "layout facecam" in text
+
+
+def test_post_text_survives_a_bare_plan():
+    plan = ClipPlan(0.0, 12.0, "hook", "title", index=1)
+    text = _post_text(ClipOutput(plan, Path("c.mp4"), None, None), VideoSource("", "", "", 0))
+    assert "CAPTION:" not in text
+    assert text.endswith("\n")

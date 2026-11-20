@@ -5,13 +5,14 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .config import Settings
 from .llm import ChatLLM, LLMError
 from .log import get_logger, step
 from .prompts import REPAIR, SYSTEM, build_user_prompt
+from .signals import LoudEvent, annotate_lines
 from .subtitles import Segment, Transcript, render_for_prompt
 
 log = get_logger()
@@ -48,7 +49,9 @@ class ClipPlan:
     score: int = 50
     index: int = 0
     source: str = "llm"
-    layout: str = ""  # "" = decide from --fit, else force facecam | gameplay | cam
+    layout: str = ""
+    caption: str = ""
+    hashtags: list[str] = field(default_factory=list)  # "" = decide from --fit, else force facecam | gameplay | cam
 
     @property
     def duration(self) -> float:
@@ -66,6 +69,8 @@ class ClipPlan:
             "score": self.score,
             "source": self.source,
             "layout": self.layout,
+            "caption": self.caption,
+            "hashtags": list(self.hashtags),
         }
 
 
@@ -106,6 +111,25 @@ def _to_float(value: Any) -> float | None:
         if match:
             return float(match.group(0).replace(",", "."))
     return None
+
+
+def _hashtags(value: Any, limit: int = 8) -> list[str]:
+    """Normalise "#GTA6, gta6 #shorts" into a clean, de-duplicated list."""
+    if isinstance(value, str):
+        raw = re.split(r"[\s,;]+", value)
+    elif isinstance(value, (list, tuple)):
+        raw = [str(item) for item in value]
+    else:
+        raw = []
+    tags: list[str] = []
+    for item in raw:
+        tag = re.sub(r"[^\w#]", "", item.strip())
+        if not tag:
+            continue
+        tag = "#" + tag.lstrip("#")
+        if len(tag) > 2 and tag.lower() not in {t.lower() for t in tags}:
+            tags.append(tag)
+    return tags[:limit]
 
 
 def _text(value: Any, limit: int, fallback: str = "") -> str:
@@ -191,6 +215,9 @@ def validate_plans(
             reason=_text(raw.get("reason", raw.get("why")), 300),
             score=int(max(0, min(100, score if score is not None else 50))),
             source=source,
+            caption=_text(raw.get("caption", raw.get("post")), 400),
+            hashtags=_hashtags(raw.get("hashtags", raw.get("tags"))),
+            layout=_text(raw.get("layout"), 10),
         )
         if transcript is not None:
             plan = snap_to_transcript(plan, transcript)
@@ -245,6 +272,7 @@ def plan_with_llm(
     llm: ChatLLM,
     *,
     title: str = "",
+    loud: list[LoudEvent] | None = None,
 ) -> list[ClipPlan]:
     """Chunked map over the transcript, then rank the union of candidates."""
     chunks = chunk_segments(transcript.segments)
@@ -255,9 +283,7 @@ def plan_with_llm(
     candidates: list[ClipPlan] = []
 
     for number, chunk in enumerate(chunks, start=1):
-        block = "\n".join(
-            f"[{segment.start:6.1f} - {segment.end:6.1f}] {segment.text}" for segment in chunk
-        )
+        block = "\n".join(annotate_lines(chunk, loud or []))
         user = build_user_prompt(
             title=title,
             duration=duration,
@@ -409,11 +435,12 @@ def plan_clips(
     *,
     llm: ChatLLM | None = None,
     title: str = "",
+    loud: list[LoudEvent] | None = None,
 ) -> tuple[list[ClipPlan], str]:
     """Return ``(clips, method)`` using the best available strategy."""
     if llm is not None:
         with step(f"Finding viral moments with {llm.provider.name}"):
-            plans = plan_with_llm(transcript, duration, settings, llm, title=title)
+            plans = plan_with_llm(transcript, duration, settings, llm, title=title, loud=loud)
         if plans:
             return plans, f"llm:{llm.provider.name}"
         log.warning("LLM returned nothing usable — falling back to the heuristic scorer")

@@ -62,8 +62,17 @@ on:
         type: choice
         default: auto
         options: [auto, claude-code, api, heuristic]
+      browser:
+        description: "Use the obscura browser when yt-dlp is refused"
+        type: choice
+        default: obscura
+        options: [obscura, "off"]
       publish_release:
         description: "Also publish the clips as a GitHub Release"
+        type: boolean
+        default: false
+      save_report:
+        description: "Commit a debug report into diagnostics/ (use when a run made no clips)"
         type: boolean
         default: false
 
@@ -112,6 +121,20 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: whisper-${{ inputs.whisper_model }}-${{ runner.os }}
+
+      - name: Install obscura (browser fallback)
+        if: ${{ inputs.browser != 'off' }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-x86_64-linux-no-render-stealth.tar.gz"
+          tmp="$(mktemp -d)"
+          curl -fsSL --retry 3 -o "$tmp/obscura.tgz" "$url"
+          tar xzf "$tmp/obscura.tgz" -C "$tmp"
+          mkdir -p "$HOME/.local/bin"
+          find "$tmp" -maxdepth 3 -type f -name obscura -exec cp {} "$HOME/.local/bin/obscura" \;
+          chmod +x "$HOME/.local/bin/obscura"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/obscura" --version || echo "::warning::obscura did not answer --version"
 
       - name: Install the facecam detector (only for fit=facecam/auto)
         if: ${{ inputs.fit == 'facecam' || inputs.fit == 'auto' }}
@@ -192,6 +215,7 @@ jobs:
           # Optional: extra yt-dlp flags, e.g. --cookies-from-browser chrome
           YTDLP_EXTRA_ARGS: ${{ vars.YTDLP_EXTRA_ARGS }}
           CLIP_FIT: ${{ inputs.fit }}
+          CLIP_BROWSER: ${{ inputs.browser == 'off' && '' || 'obscura' }}
           CLIP_LANGUAGE: ${{ inputs.language }}
           WHISPER_MODEL: ${{ inputs.whisper_model }}
           LLM_BACKEND: ${{ inputs.llm_backend }}
@@ -214,6 +238,9 @@ jobs:
             echo "::error::Add at least one YouTube link in the 'urls' input."
             exit 1
           fi
+          # pipefail: without it `tee` hides a non-zero exit and a run that produced
+          # nothing still shows up green (that is exactly what happened twice).
+          set -o pipefail
           python -m clipper --doctor || true
           python -m clipper 2>&1 | tee /tmp/clipper.log
 
@@ -280,20 +307,102 @@ jobs:
             echo "" >> "$summary"
             echo "Formats YouTube listed (and every attempt): see \`out/formats.txt\` in the artifact." >> "$summary"
           fi
+          if [ "$clips" -eq 0 ]; then
+            echo "::error::This run produced no clips. Check 'Why it failed' in the run summary, set save_report=true for a full log, or read docs/TROUBLESHOOTING.md."
+            exit 1
+          fi
+
+      - name: Publish a debug report into the repo
+        if: ${{ always() && inputs.save_report }}
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          report="diagnostics/clips-${GITHUB_RUN_ID}.txt"
+          {
+            echo "run ${GITHUB_RUN_ID} · ${GITHUB_SHA:0:7} · $(date -u +%FT%TZ)"
+            echo "fit=${{ inputs.fit }} editing=${{ inputs.editing }} browser=${{ inputs.browser }} clips=${{ inputs.clips }}"
+            echo
+            echo "== out/ =="
+            find out -type f -printf '%10s  %p\n' 2>/dev/null | sort -k2 || true
+            echo
+            echo "== ffmpeg =="
+            ffmpeg -version 2>&1 | head -n 2 || true
+            echo
+            echo "== log tail =="
+            tail -n 150 /tmp/clipper.log 2>/dev/null || echo "(no log at /tmp/clipper.log)"
+          } > "$report" || true
+          tail -n 40 "$report"
+          git config user.name "clipper-diagnostics"
+          git config user.email "clipper-diagnostics@users.noreply.github.com"
+          git add -f "$report"
+          if git diff --cached --quiet; then
+            echo "nothing new to publish"
+            exit 0
+          fi
+          git commit -m "diagnostics: clip run ${GITHUB_RUN_ID} [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+              echo "published $report"
+              break
+            fi
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 5
+          done
 
       - name: Publish clips as a GitHub Release
         if: ${{ inputs.publish_release == true }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The notes are the readable half of this step: they land in the Release body, so a
+          # phone-only user (or anyone without the run's log) can see what the run wrote.
+          appendix=/tmp/appendix.md
+          {
+            echo ""
+            echo "## What the run wrote"
+            echo ""
+            echo '```'
+            find out -type f -printf '%10s  %p\n' 2>/dev/null | sort -k2 || true
+            echo '```'
+            if [ -f /tmp/clipper.log ]; then
+              echo ""
+              echo "<details><summary>Last 40 log lines</summary>"
+              echo ""
+              echo '```'
+              tail -n 40 /tmp/clipper.log
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } > "$appendix"
+
           mapfile -t files < <(find out -name '*.mp4' -size +0c | sort)
+          stamp="$(date -u +%Y%m%d-%H%M%S)"
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No clips to publish."
+            # Still publish: it makes the log readable without downloading anything.
+            {
+              echo "Run ${GITHUB_RUN_ID} produced no clips."
+              echo ""
+              echo "Open the run log for the long version, or re-run with `save_report` on."
+              cat "$appendix"
+            } > /tmp/notes-empty.md
+            gh release create "run-${stamp}" \
+              --title "No clips · ${stamp} UTC" \
+              --notes-file /tmp/notes-empty.md \
+              --latest=false || exit 0
+            echo "Published a debug release: run-${stamp}"
             exit 0
           fi
+
           notes=out/report.md
-          [ -f "$notes" ] || { echo "Clipper run $(date -u)" > /tmp/notes.md; notes=/tmp/notes.md; }
-          tag="clips-$(date -u +%Y%m%d-%H%M%S)"
+          if [ -f "$notes" ]; then
+            cat "$appendix" >> "$notes"
+          else
+            printf 'Clipper run %s\n' "$stamp" > /tmp/notes.md
+            cat "$appendix" >> /tmp/notes.md
+            notes=/tmp/notes.md
+          fi
+          tag="clips-${stamp}"
           gh release create "$tag" "${files[@]}" \
             --title "Clips · $(date -u +%Y-%m-%d)" \
             --notes-file "$notes" \
