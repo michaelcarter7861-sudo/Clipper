@@ -71,6 +71,10 @@ on:
         description: "Also publish the clips as a GitHub Release"
         type: boolean
         default: false
+      save_report:
+        description: "Commit a debug report into diagnostics/ (use when a run made no clips)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -300,6 +304,49 @@ jobs:
             echo "" >> "$summary"
             echo "Formats YouTube listed (and every attempt): see \`out/formats.txt\` in the artifact." >> "$summary"
           fi
+          if [ "$clips" -eq 0 ]; then
+            echo "::error::This run produced no clips. Check 'Why it failed' in the run summary, set save_report=true for a full log, or read docs/TROUBLESHOOTING.md."
+            exit 1
+          fi
+
+      - name: Publish a debug report into the repo
+        if: ${{ always() && inputs.save_report }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          report="diagnostics/clips-${GITHUB_RUN_ID}.txt"
+          mkdir -p diagnostics
+          {
+            echo "run ${GITHUB_RUN_ID} · ${GITHUB_SHA:0:7} · $(date -u +%FT%TZ)"
+            echo "inputs: urls=${{ inputs.urls }} clips=${{ inputs.clips }} fit=${{ inputs.fit }} editing=${{ inputs.editing }} browser=${{ inputs.browser }}"
+            echo ""
+            echo "== out/ =="
+            find out -type f -printf '%10s  %p\n' 2>/dev/null | sort -k2 || true
+            echo ""
+            echo "== ffmpeg =="
+            ffmpeg -version 2>&1 | head -n 2 || true
+            echo ""
+            echo "== log (last 120 lines) =="
+            tail -n 120 /tmp/clipper.log 2>/dev/null || echo "(no log)"
+          } > "$report" 2>&1
+          git config user.name "clipper-bot"
+          git config user.email "clipper-bot@users.noreply.github.com"
+          for attempt in 1 2 3 4; do
+            git fetch --quiet origin "${GITHUB_REF_NAME}" || true
+            git reset --quiet --hard "origin/${GITHUB_REF_NAME}" || true
+            cp "$report" "/tmp/report-${GITHUB_RUN_ID}.txt"
+            mkdir -p diagnostics && cp "/tmp/report-${GITHUB_RUN_ID}.txt" "$report"
+            git add "$report"
+            git commit --quiet -m "diagnostics: clip run ${GITHUB_RUN_ID} [skip ci]" || exit 0
+            if git push --quiet origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "report published: $report"
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt), retrying"
+            sleep $((attempt * 5))
+          done
+          echo "::warning::could not publish the report; it is in the run log instead"
 
       - name: Publish clips as a GitHub Release
         if: ${{ inputs.publish_release == true }}
