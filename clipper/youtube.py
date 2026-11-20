@@ -631,9 +631,14 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             continue
         log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
-    if info is not None and _downloaded_path(info, work_dir) is None:
-        log.warning("yt-dlp said it downloaded something but wrote no file — trying other routes")
-        info = None
+    if info is not None and not _usable_media(_downloaded_path(info, work_dir), settings):
+        if live_state == "is_live":
+            log.debug("live stream: skipping the media sanity check")
+        else:
+            log.warning(
+                "yt-dlp reported success but wrote no playable file — trying the other routes"
+            )
+            info = None
 
     if info is None:
         rescued = _rescue(url, work_dir, settings, probed=probed)
@@ -972,6 +977,18 @@ def _source_from_info(
     )
     (work_dir / "info.json").write_text(json.dumps(source.to_dict(), indent=2), encoding="utf-8")
     return source
+
+
+def _usable_media(path: Path | None, settings: Settings) -> bool:
+    """Does this file actually decode? A redirect served as a page does not."""
+    if path is None or not path.exists():
+        return False
+    if path.stat().st_size < 1024:
+        return False
+    duration, width, height = _ffprobe_metadata(path, settings)
+    if duration > 0.2:
+        return True
+    return path.suffix.lower() in {".m4a", ".mp3", ".aac", ".ogg", ".opus", ".wav"} and width == 0
 
 
 def _title_from_url(url: str) -> str:
