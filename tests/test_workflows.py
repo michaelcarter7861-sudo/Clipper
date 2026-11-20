@@ -37,7 +37,7 @@ def test_clip_workflow_inputs_and_contract():
     inputs = triggers["workflow_dispatch"]["inputs"]
     assert "urls" in inputs and inputs["urls"]["required"] is True
     assert inputs["caption_style"]["options"] == ["karaoke", "plain", "none"]
-    assert inputs["fit"]["options"] == ["crop", "blur", "pad"]
+    assert inputs["fit"]["options"] == ["crop", "blur", "pad", "facecam", "auto"]
     assert data["permissions"]["contents"] == "write"
 
     job = data["jobs"]["clip"]
@@ -53,6 +53,13 @@ def test_clip_workflow_inputs_and_contract():
     assert "claude-code" in runs
 
     assert inputs["max_height"]["default"] == "1080"
+
+    # The facecam detector is optional: its install step must be conditional.
+    facecam_step = next(
+        (step for step in steps if "requirements-facecam" in step.get("run", "")), None
+    )
+    assert facecam_step is not None
+    assert "facecam" in str(facecam_step.get("if", ""))
 
     cut_step = next(step for step in steps if step.get("env", {}).get("CLIP_URLS"))
     env = cut_step["env"]

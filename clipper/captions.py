@@ -174,7 +174,12 @@ def _karaoke_body(
     return "\\N".join(lines)
 
 
-def _style_header(settings: Settings) -> str:
+def _style_header(
+    settings: Settings,
+    *,
+    caption_margin_v: int | None = None,
+    hook_margin_v: int | None = None,
+) -> str:
     size = settings.caption_font_size
     hook_size = max(24, int(round(size * 0.74)))
     primary = hex_to_ass(settings.caption_primary)
@@ -187,8 +192,18 @@ def _style_header(settings: Settings) -> str:
     else:
         cap_primary, cap_secondary = primary, primary
 
-    margin_v = int(round(settings.height * 0.235))
-    hook_margin = int(round(settings.height * 0.105))
+    # A facecam clip puts the captions over the gameplay panel, not the middle
+    # of the frame, so the caller can shift both anchors.
+    margin_v = (
+        int(caption_margin_v)
+        if caption_margin_v is not None
+        else int(round(settings.height * 0.235))
+    )
+    hook_margin = (
+        int(hook_margin_v)
+        if hook_margin_v is not None
+        else int(round(settings.height * 0.105))
+    )
     outline_width = max(3, int(round(size * 0.085)))
 
     return f"""[Script Info]
@@ -219,10 +234,16 @@ def build_ass(
     *,
     hook: str | None = None,
     clip_duration: float | None = None,
+    caption_margin_v: int | None = None,
+    hook_margin_v: int | None = None,
 ) -> str:
     """Build a complete .ass file for the window ``[start, end)``."""
     duration = clip_duration if clip_duration is not None else max(0.1, end - start)
-    lines = [_style_header(settings)]
+    lines = [
+        _style_header(
+            settings, caption_margin_v=caption_margin_v, hook_margin_v=hook_margin_v
+        )
+    ]
 
     words = [
         Word(start=w.start - start, end=max(w.start - start, w.end - start), text=w.text)
@@ -287,10 +308,21 @@ def write_ass(
     *,
     hook: str | None = None,
     clip_duration: float | None = None,
+    caption_margin_v: int | None = None,
+    hook_margin_v: int | None = None,
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        build_ass(transcript, start, end, settings, hook=hook, clip_duration=clip_duration),
+        build_ass(
+            transcript,
+            start,
+            end,
+            settings,
+            hook=hook,
+            clip_duration=clip_duration,
+            caption_margin_v=caption_margin_v,
+            hook_margin_v=hook_margin_v,
+        ),
         encoding="utf-8",
     )
     return path

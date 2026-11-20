@@ -41,6 +41,7 @@ class ClipOutput:
     output_duration: float = 0.0
     editing: str = ""
     edit: dict | None = None
+    layout: str = ""
 
     def to_dict(self) -> dict:
         payload = self.plan.to_dict()
@@ -48,6 +49,7 @@ class ClipOutput:
         payload["thumbnail"] = self.thumbnail.name if self.thumbnail else None
         payload["output_duration"] = round(self.output_duration, 2)
         payload["editing"] = self.editing
+        payload["layout"] = self.layout
         if self.edit:
             payload["edit"] = self.edit
         return payload
@@ -411,8 +413,8 @@ def _report_markdown(results: list[VideoResult], settings: Settings) -> str:
             lines.append(f"- **error:** {result.error}")
         lines.append("")
         if result.clips:
-            lines.append("| # | file | in | out | length | edit | score | hook |")
-            lines.append("|---|------|----|-----|--------|------|-------|------|")
+            lines.append("| # | file | in | out | length | edit | score | layout | hook |")
+            lines.append("|---|------|----|-----|--------|------|-------|--------|------|")
             for clip in result.clips:
                 plan = clip.plan
                 name = clip.path.name if clip.path else "(dry run)"
@@ -420,7 +422,8 @@ def _report_markdown(results: list[VideoResult], settings: Settings) -> str:
                 length = clip.output_duration or plan.duration
                 lines.append(
                     f"| {plan.index} | `{name}` | {plan.start:.1f}s | {plan.end:.1f}s | "
-                    f"{length:.0f}s | {clip.editing or '-'} | {plan.score} | {hook} |"
+                    f"{length:.0f}s | {clip.editing or '-'} | {plan.score} | "
+                    f"{clip.layout or '-'} | {hook} |"
                 )
         else:
             lines.append("_no clips_")
@@ -543,6 +546,7 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
                         output_duration=rendered.output_duration,
                         editing=rendered.editing,
                         edit=rendered.edit.to_dict() if rendered.edit else None,
+                        layout=rendered.layout,
                     )
                 )
             except Exception as exc:  # noqa: BLE001
@@ -570,7 +574,13 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
         )
         (clip_dir / "index.html").write_text(_gallery_html(result, settings), encoding="utf-8")
 
-        if not settings.keep_source and source.path and source.path.exists():
+        # Never delete a file the user handed us: only our own downloads.
+        if (
+            not settings.keep_source
+            and not source.local
+            and source.path
+            and source.path.exists()
+        ):
             try:
                 source.path.unlink()
                 for extra in base.glob("source*"):
