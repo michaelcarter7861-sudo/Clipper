@@ -140,3 +140,86 @@ jobs:
             echo "push attempt ${attempt} failed, retrying"
             sleep 5
           done
+
+  browser:
+    # Same question, different asker: what does a real browser get for this link?
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[diagnose]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install obscura
+        run: |
+          set -euo pipefail
+          url="https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-x86_64-linux-no-render-stealth.tar.gz"
+          tmp="$(mktemp -d)"
+          curl -fsSL --retry 3 -o "$tmp/obscura.tgz" "$url"
+          tar xzf "$tmp/obscura.tgz" -C "$tmp"
+          mkdir -p "$HOME/.local/bin"
+          find "$tmp" -maxdepth 3 -type f -name obscura -exec cp {} "$HOME/.local/bin/obscura" \;
+          chmod +x "$HOME/.local/bin/obscura"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/obscura" --version
+
+      - name: Install yt-dlp
+        run: python -m pip install --quiet --upgrade yt-dlp
+
+      - name: Ask the browser what YouTube serves
+        env:
+          URL: ${{ github.event.inputs.url || 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' }}
+          YT_PROXY: ${{ secrets.YT_PROXY }}
+        run: |
+          set -uo pipefail
+          report="browser-report.txt"
+          {
+            echo "os: ${RUNNER_OS}"
+            echo "date: $(date -u +%FT%TZ)"
+            echo "ip: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
+            echo "proxy configured: $([ -n "${YT_PROXY:-}" ] && echo yes || echo no)"
+            obscura --version || true
+            python -m clipper --check-youtube --browser obscura 2>&1 | tail -n 5 || true
+            echo
+            echo "== browser player response =="
+            python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from clipper.browser import fetch_page, pick_streams
+          from clipper.config import Settings
+
+          settings = Settings(browser="obscura", proxy=os.environ.get("YT_PROXY", ""))
+          page = fetch_page(os.environ["URL"], settings, storage_dir=Path("browser-profile"))
+          print("ok:", page.ok, "| elapsed:", round(page.elapsed, 1), "s")
+          print(page.describe())
+          print("cookies:", len(page.cookies))
+          video, audio = pick_streams(page.player_response, settings.max_video_height)
+          print("video stream:", (video or {}).get("itag"), (video or {}).get("height"))
+          print("audio stream:", (audio or {}).get("itag"))
+          Path("browser-page.json").write_text(json.dumps(page.to_dict(), indent=2))
+          PY
+          } >> "$report" 2>&1
+
+          cat "$report"
+          {
+            echo "### Browser · ${RUNNER_OS}"
+            echo ""
+            echo '```'
+            head -n 40 "$report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the browser report
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-report
+          path: |
+            browser-report.txt
+            browser-page.json
+          if-no-files-found: ignore

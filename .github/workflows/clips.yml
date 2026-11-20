@@ -62,6 +62,11 @@ on:
         type: choice
         default: auto
         options: [auto, claude-code, api, heuristic]
+      browser:
+        description: "Use the obscura browser when yt-dlp is refused"
+        type: choice
+        default: obscura
+        options: [obscura, "off"]
       publish_release:
         description: "Also publish the clips as a GitHub Release"
         type: boolean
@@ -112,6 +117,20 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: whisper-${{ inputs.whisper_model }}-${{ runner.os }}
+
+      - name: Install obscura (browser fallback)
+        if: ${{ inputs.browser != 'off' }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/h4ckf0r0day/obscura/releases/latest/download/obscura-x86_64-linux-no-render-stealth.tar.gz"
+          tmp="$(mktemp -d)"
+          curl -fsSL --retry 3 -o "$tmp/obscura.tgz" "$url"
+          tar xzf "$tmp/obscura.tgz" -C "$tmp"
+          mkdir -p "$HOME/.local/bin"
+          find "$tmp" -maxdepth 3 -type f -name obscura -exec cp {} "$HOME/.local/bin/obscura" \;
+          chmod +x "$HOME/.local/bin/obscura"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/obscura" --version || echo "::warning::obscura did not answer --version"
 
       - name: Install the facecam detector (only for fit=facecam/auto)
         if: ${{ inputs.fit == 'facecam' || inputs.fit == 'auto' }}
@@ -192,6 +211,7 @@ jobs:
           # Optional: extra yt-dlp flags, e.g. --cookies-from-browser chrome
           YTDLP_EXTRA_ARGS: ${{ vars.YTDLP_EXTRA_ARGS }}
           CLIP_FIT: ${{ inputs.fit }}
+          CLIP_BROWSER: ${{ inputs.browser == 'off' && '' || 'obscura' }}
           CLIP_LANGUAGE: ${{ inputs.language }}
           WHISPER_MODEL: ${{ inputs.whisper_model }}
           LLM_BACKEND: ${{ inputs.llm_backend }}

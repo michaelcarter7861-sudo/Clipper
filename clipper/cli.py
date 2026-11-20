@@ -119,6 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="probe a public video and report whether YouTube serves this machine",
     )
     youtube.add_argument(
+        "--browser",
+        default=None,
+        help="obscura binary used when yt-dlp is refused ('' disables, default: PATH)",
+    )
+    youtube.add_argument(
+        "--browser-stealth",
+        action="store_true",
+        default=None,
+        help="run the browser with fingerprint spoofing (off by default)",
+    )
+    youtube.add_argument(
         "--list-formats",
         action="store_true",
         help="print the formats YouTube offers for each URL and exit",
@@ -152,10 +163,13 @@ def main(argv: list[str] | None = None) -> int:
         return doctor_cli(settings)
 
     if getattr(args, "check_youtube", False):
+        from .browser import browser_available
         from .youtube import youtube_reachable
 
         ok, reason = youtube_reachable(settings)
         print(f"youtube: {'PASS' if ok else 'FAIL'} — {reason}")
+        browser_ok, browser_why = browser_available(settings)
+        print(f"browser: {'PASS' if browser_ok else 'FAIL'} — {browser_why}")
         return 0 if ok else 1
 
     if getattr(args, "list_formats", False):
