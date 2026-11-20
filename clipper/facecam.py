@@ -194,11 +194,11 @@ def _motion_edges(grays: list, face: tuple[float, float, float, float], width: i
     A facecam is the still-ish part of the frame; the game behind it moves. Cheap,
     and it survives thin or missing overlay borders.
     """
+    if len(grays) < 3:
+        return None
     import cv2
     import numpy as np
 
-    if len(grays) < 3:
-        return None
     diffs = [
         np.abs(second.astype(np.float32) - first.astype(np.float32))
         for first, second in zip(grays, grays[1:], strict=False)
