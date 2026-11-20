@@ -14,6 +14,7 @@ from clipper.youtube import (
     DownloadError,
     FormatRow,
     _attempts,
+    _ffprobe_metadata,
     _format_rows,
     _friendly_error,
     _parse_extra_args,
@@ -22,6 +23,7 @@ from clipper.youtube import (
     format_table,
     js_runtime_status,
     list_formats,
+    youtube_reachable,
 )
 
 URL = "https://www.youtube.com/live/abc123def45"
@@ -444,6 +446,95 @@ def test_list_formats_explains_storyboard_only_answers(fake_ytdlp):
     }
 
     assert list_formats(URL, make_settings()) == 1
+
+
+def test_local_files_skip_youtube_entirely(fake_ytdlp, tmp_path: Path, monkeypatch):
+    video = tmp_path / "my talk.mp4"
+    video.write_bytes(b"not really a video")
+    (tmp_path / "my talk.vtt").write_text("WEBVTT\n", encoding="utf-8")
+    monkeypatch.setattr("clipper.youtube.shutil.which", lambda name: None)
+
+    source = download(str(video), tmp_path / "work", make_settings(out_dir=tmp_path / "out"))
+
+    assert source.path == video
+    assert source.title == "my talk"
+    assert source.subtitle_files == [tmp_path / "my talk.vtt"]
+    assert fake_ytdlp.calls == []  # yt-dlp was never touched
+
+
+def test_ffprobe_metadata_reads_duration_and_size(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("clipper.youtube.shutil.which", lambda name: "/usr/bin/ffprobe")
+
+    class Result:
+        stdout = '{"streams": [{"width": 1920, "height": 1080}], "format": {"duration": "1295.4"}}'
+
+    monkeypatch.setattr("clipper.youtube.subprocess.run", lambda *a, **k: Result())
+
+    assert _ffprobe_metadata(tmp_path / "v.mp4", make_settings()) == (1295.4, 1920, 1080)
+
+
+def test_ffprobe_metadata_is_optional(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("clipper.youtube.shutil.which", lambda name: None)
+
+    assert _ffprobe_metadata(tmp_path / "v.mp4", make_settings()) == (0.0, 0, 0)
+
+
+def test_file_urls_point_at_local_files(fake_ytdlp, tmp_path: Path, monkeypatch):
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"x")
+    monkeypatch.setattr("clipper.youtube.shutil.which", lambda name: None)
+
+    source = download(f"file://{video}", tmp_path / "work", make_settings(out_dir=tmp_path / "out"))
+
+    assert source.path == video
+    assert fake_ytdlp.calls == []
+
+
+def test_youtube_reachable_reports_storyboards_as_unreachable(fake_ytdlp):
+    fake_ytdlp.probe_info = {"id": "x", "formats": [{"format_id": "sb0", "ext": "mhtml"}]}
+
+    ok, reason = youtube_reachable(make_settings())
+
+    assert ok is False
+    assert "none downloadable" in reason
+
+
+def test_youtube_reachable_true_with_a_real_format(fake_ytdlp):
+    ok, reason = youtube_reachable(make_settings())
+
+    assert ok is True
+    assert "downloadable format(s)" in reason
+
+
+def test_failure_says_the_ip_is_blocked_when_the_test_video_fails_too(fake_ytdlp, tmp_path: Path, monkeypatch):
+    fake_ytdlp.fail_all = RuntimeError("ERROR: Requested format is not available")
+    monkeypatch.setattr(
+        "clipper.youtube.youtube_reachable", lambda settings, url=None: (False, "test video listed 4")
+    )
+
+    with pytest.raises(DownloadError) as excinfo:
+        download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
+
+    message = str(excinfo.value)
+    assert "blocking this machine's IP" in message
+    assert "YT_PROXY" in message
+
+
+def test_storyboard_diagnosis_beats_a_misleading_bot_check():
+    # the cookie-free attempt ends in a bot check; the storyboard diagnosis must still win
+    message = _friendly_error("Sign in to confirm you're not a bot", [], images_only=True)
+
+    assert "storyboard images only" in message
+
+
+def test_cli_check_youtube_exit_codes(monkeypatch):
+    from clipper.cli import main
+
+    monkeypatch.setattr("clipper.youtube.youtube_reachable", lambda settings, url=None: (True, "ok"))
+    assert main(["--check-youtube"]) == 0
+
+    monkeypatch.setattr("clipper.youtube.youtube_reachable", lambda settings, url=None: (False, "blocked"))
+    assert main(["--check-youtube"]) == 1
 
 
 def test_friendly_error_keeps_the_old_cases():

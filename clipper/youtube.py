@@ -77,6 +77,7 @@ def video_id_from_url(url: str) -> str:
 FORMAT_CHAIN = "bv*+ba/b/best"
 PROBE_FORMAT = "all"  # list every format, even when only images exist
 PLAYER_CLIENTS = ("android", "tv", "web_safari", "ios", "mweb")
+TEST_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"  # Big Buck Bunny, public domain
 FORMAT_ERROR_HINTS = (
     "requested format is not available",
     "no video formats found",
@@ -355,6 +356,94 @@ def _set_player_client(opts: dict, client: str) -> None:
     opts["extractor_args"] = args
 
 
+def local_media_path(url: str) -> Path | None:
+    """Return a path when ``url`` is really a file on disk (or a ``file://`` link)."""
+    candidate = url[7:] if url.startswith("file://") else url
+    if not candidate or "://" in candidate:
+        return None
+    path = Path(candidate).expanduser()
+    return path if path.is_file() else None
+
+
+def _ffprobe_metadata(path: Path, settings: Settings) -> tuple[float, int, int]:
+    """duration, width, height — best effort, never fatal."""
+    probe = shutil.which(settings.ffprobe) or (settings.ffprobe if Path(settings.ffprobe).is_file() else None)
+    if not probe:
+        return 0.0, 0, 0
+    try:
+        result = subprocess.run(
+            [
+                probe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        payload = json.loads(result.stdout or "{}")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0.0, 0, 0
+    duration = 0.0
+    try:
+        duration = float((payload.get("format") or {}).get("duration") or 0.0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    streams = payload.get("streams") or [{}]
+    width = int(streams[0].get("width") or 0)
+    height = int(streams[0].get("height") or 0)
+    return duration, width, height
+
+
+def local_source(url: str, path: Path, settings: Settings) -> VideoSource:
+    """Use a video that is already on disk — no YouTube involved at all."""
+    duration, width, height = _ffprobe_metadata(path, settings)
+    subtitles = sorted(
+        sibling
+        for sibling in path.parent.glob(f"{path.stem}.*")
+        if sibling.suffix.lower() in {".vtt", ".srt"}
+    )
+    log.info("using the local file %s (%.1fs)", path.name, duration)
+    return VideoSource(
+        url=url,
+        video_id=slugify(path.stem),
+        title=path.stem,
+        duration=duration,
+        path=path,
+        width=width,
+        height=height,
+        subtitle_files=subtitles,
+        info={"id": slugify(path.stem), "title": path.stem, "duration": duration},
+    )
+
+
+def youtube_reachable(settings: Settings, url: str = TEST_URL) -> tuple[bool, str]:
+    """Can this machine download from YouTube at all right now?
+
+    Probes a public-domain video: if even that only yields storyboards, the block is on
+    the machine's IP, not on the link the user pasted.
+    """
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="clipper-check-") as tmp:
+            info = probe_formats(url, Path(tmp), settings)
+    except DownloadError as exc:
+        return False, str(exc)
+    rows = _format_rows(info)
+    if rows:
+        return True, f"{len(rows)} downloadable format(s) for a public test video"
+    listed = len((info or {}).get("formats") or [])
+    return False, f"the test video listed {listed} format(s) but none downloadable"
+
+
 def probe_formats(url: str, work_dir: Path, settings: Settings) -> dict | None:
     """Ask yt-dlp what YouTube offers for ``url`` without downloading anything."""
     try:
@@ -454,6 +543,9 @@ def list_formats(url: str, settings: Settings) -> int:
 def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
     """List the formats YouTube offers, then download the best one that answers."""
     work_dir.mkdir(parents=True, exist_ok=True)
+    local = local_media_path(url)
+    if local is not None:
+        return local_source(url, local, settings)
     try:
         import yt_dlp
     except ImportError as exc:  # pragma: no cover
@@ -527,15 +619,21 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         break
     if info is None:
         _write_formats_report(settings.out_dir, url, probed, errors, live_state)
-        raise DownloadError(
-            _friendly_error(
-                last_error,
-                rows,
-                live=live,
-                images_only=images_only,
-                clients_tried=[label for label, _ in errors],
-            )
+        message = _friendly_error(
+            last_error,
+            rows,
+            live=live,
+            images_only=images_only,
+            clients_tried=[label for label, _ in errors],
         )
+        reachable, why = youtube_reachable(settings)
+        if not reachable:
+            message += (
+                " Diagnosis: a public test video fails the same way, so YouTube is blocking this "
+                f"machine's IP, not this link ({why}). Fixes: set YT_PROXY to a residential proxy, "
+                "or give a direct video file/link (e.g. a Dropbox ?dl=1 URL) instead of a YouTube URL."
+            )
+        raise DownloadError(message)
 
     if "entries" in info and info["entries"]:
         info = info["entries"][0]
@@ -599,14 +697,14 @@ def _friendly_error(
         if runtimes
         else "No JS runtime (deno/node) found — yt-dlp cannot solve YouTube's challenges."
     )
+    if images_only:
+        return (
+            "YouTube answered with storyboard images only — no video/audio stream. That is what "
+            "a missing JS runtime, a throttled IP or a stale cookie session looks like. "
+            f"Players tried: {tried}. {runtime_hint} Fix: set YT_PROXY to a residential proxy, "
+            "or export YT_COOKIES again from a fresh browser session."
+        )
     if _is_retryable(lowered):
-        if images_only:
-            return (
-                "YouTube answered with storyboard images only — no video/audio stream. That is "
-                "what a missing JS runtime, a throttled IP or a stale cookie session looks like. "
-                f"Players tried: {tried}. {runtime_hint} Fix: set YT_PROXY to a residential "
-                "proxy, or export YT_COOKIES again from a fresh browser session."
-            )
         if _is_format_error(lowered):
             listed = ", ".join(f"{row.id}={row.ext}/{row.res}" for row in (formats or [])[:6])
             hint = (
