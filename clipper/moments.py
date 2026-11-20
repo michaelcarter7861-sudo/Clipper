@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .chat import ChatEvent
 from .config import Settings
 from .llm import ChatLLM, LLMError
 from .log import get_logger, step
@@ -18,7 +19,7 @@ from .subtitles import Segment, Transcript, render_for_prompt
 log = get_logger()
 
 MAX_CHUNK_CHARS = 9000
-MAX_CHUNK_SPAN = 600.0
+MAX_CHUNK_SPAN = 720.0  # 12 minutes: a prompt-sized slice of a long stream
 
 HOOK_WORDS = {
     # english
@@ -273,9 +274,13 @@ def plan_with_llm(
     *,
     title: str = "",
     loud: list[LoudEvent] | None = None,
+    chat: list[ChatEvent] | None = None,
 ) -> list[ClipPlan]:
     """Chunked map over the transcript, then rank the union of candidates."""
-    chunks = chunk_segments(transcript.segments)
+    chunks = chunk_segments(
+        transcript.segments,
+        max_span=max(120.0, float(getattr(settings, "chunk_span", MAX_CHUNK_SPAN))),
+    )
     if not chunks:
         return []
 
@@ -283,7 +288,7 @@ def plan_with_llm(
     candidates: list[ClipPlan] = []
 
     for number, chunk in enumerate(chunks, start=1):
-        block = "\n".join(annotate_lines(chunk, loud or []))
+        block = "\n".join(annotate_lines(chunk, loud or [], chat or []))
         user = build_user_prompt(
             title=title,
             duration=duration,
@@ -436,11 +441,14 @@ def plan_clips(
     llm: ChatLLM | None = None,
     title: str = "",
     loud: list[LoudEvent] | None = None,
+    chat: list[ChatEvent] | None = None,
 ) -> tuple[list[ClipPlan], str]:
     """Return ``(clips, method)`` using the best available strategy."""
     if llm is not None:
         with step(f"Finding viral moments with {llm.provider.name}"):
-            plans = plan_with_llm(transcript, duration, settings, llm, title=title, loud=loud)
+            plans = plan_with_llm(
+                transcript, duration, settings, llm, title=title, loud=loud, chat=chat
+            )
         if plans:
             return plans, f"llm:{llm.provider.name}"
         log.warning("LLM returned nothing usable — falling back to the heuristic scorer")

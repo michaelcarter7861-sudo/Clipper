@@ -179,3 +179,52 @@ def test_plan_serialises_to_dict():
     assert payload["cuts"] == len(plan.keeps) - 1
     assert payload["removed_seconds"] > 0
     assert payload["output_duration"] <= payload["source_duration"]
+
+
+def test_retakes_drop_the_false_start():
+    words: list[Word] = []
+    clock = 0.0
+    for phrase in ("so today i want to talk about", "so today i want to talk about money"):
+        for word in phrase.split():
+            words.append(Word(clock, clock + 0.2, word))
+            clock += 0.25
+        clock += 0.6
+    transcript = Transcript(
+        segments=[Segment(0.0, clock, " ".join(w.text for w in words), words)],
+        language="en",
+        source="test",
+        duration=clock,
+    )
+    settings = Settings(retakes=True, tighten=True, max_pause=0.3)
+    plan = build_edit_plan(transcript, 0.0, clock, settings)
+    assert any("retake" in note for note in plan.notes)
+    assert plan.output_duration < clock
+
+
+def test_retakes_do_not_touch_a_clean_take():
+    words = [
+        Word(index * 0.4, index * 0.4 + 0.3, word)
+        for index, word in enumerate("this is one clean sentence with no restarts at all".split())
+    ]
+    transcript = Transcript(
+        segments=[Segment(0.0, words[-1].end, " ".join(w.text for w in words), words)],
+        language="en",
+        source="test",
+        duration=words[-1].end,
+    )
+    plan = build_edit_plan(transcript, 0.0, words[-1].end, Settings(retakes=True))
+    assert not any("retake" in note for note in plan.notes)
+
+
+def test_retakes_can_be_turned_off():
+    words: list[Word] = []
+    clock = 0.0
+    for phrase in ("hello there my friend", "hello there my friend"):
+        for word in phrase.split():
+            words.append(Word(clock, clock + 0.2, word))
+            clock += 0.25
+    transcript = Transcript(
+        segments=[Segment(0.0, clock, "x", words)], language="en", source="test", duration=clock
+    )
+    plan = build_edit_plan(transcript, 0.0, clock, Settings(retakes=False))
+    assert not any("retake" in note for note in plan.notes)

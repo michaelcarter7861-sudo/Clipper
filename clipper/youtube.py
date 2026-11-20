@@ -44,6 +44,7 @@ class VideoSource:
     chosen_format: str = ""
     live_status: str = ""
     local: bool = False  # a file the user pointed at: never delete it
+    audio_only: bool = False  # analysis was done on audio; video comes per clip
 
     @property
     def slug(self) -> str:
@@ -61,6 +62,7 @@ class VideoSource:
             "height": self.height,
             "file": str(self.path) if self.path else None,
             "chosen_format": self.chosen_format,
+            "audio_only": self.audio_only,
             "live_status": self.live_status,
             "local": self.local,
             "formats": self.formats,
@@ -929,3 +931,155 @@ def extract_audio(ffmpeg: str, video_path: Path, wav_path: Path) -> Path:
     if result.returncode != 0:
         raise DownloadError(f"ffmpeg could not extract audio: {result.stderr.strip()[:400]}")
     return wav_path
+
+
+# --------------------------------------------------------------------------- #
+# chat replay
+# --------------------------------------------------------------------------- #
+def download_chat(url: str, work_dir: Path, settings: Settings) -> Path | None:
+    """Fetch the live-chat replay if this video has one. Never raises."""
+    from .config import Settings as _Settings  # noqa: F401  (typing only)
+
+    if settings.chat and Path(settings.chat).exists():
+        return Path(settings.chat)
+    if not settings.chat_fetch:
+        return None
+    if local_media_path(url) is not None:
+        return None
+    try:
+        import yt_dlp
+    except ImportError:  # pragma: no cover
+        return None
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    opts: dict = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": ["live_chat"],
+        "subtitlesformat": "json",
+        "outtmpl": str(work_dir / "chat.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 1,
+        "socket_timeout": 30,
+        "logger": _YdlLogger(),
+    }
+    if settings.cookies and Path(settings.cookies).exists():
+        opts["cookiefile"] = str(settings.cookies)
+    if settings.proxy:
+        opts["proxy"] = settings.proxy
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=True)
+    except Exception as exc:  # noqa: BLE001 - a chat file is a bonus, never a blocker
+        log.debug("no chat replay for %s: %s", url, _one_line(str(exc)))
+        return None
+    for candidate in sorted(work_dir.glob("chat*.json")):
+        if candidate.stat().st_size:
+            log.info("chat replay: %s", candidate.name)
+            return candidate
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# audio-only analysis, then only the windows that became clips
+# --------------------------------------------------------------------------- #
+def download_audio(url: str, work_dir: Path, settings: Settings) -> VideoSource:
+    """Download just the audio track — enough to transcribe and to listen for hype."""
+    try:
+        import yt_dlp
+    except ImportError as exc:  # pragma: no cover
+        raise DownloadError("yt-dlp is not installed (pip install -r requirements.txt)") from exc
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    opts = _ydl_opts(settings, work_dir, format_selector="ba[ext=m4a]/ba/b")
+    opts["outtmpl"] = str(work_dir / "audio.%(ext)s")
+    opts["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a"}]
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as exc:  # noqa: BLE001
+        raise DownloadError(f"audio-only download failed for {url}: {_one_line(str(exc))}") from exc
+
+    files = [p for p in sorted(work_dir.glob("audio.*")) if p.suffix.lower() in {".m4a", ".mp3", ".opus", ".webm", ".aac", ".ogg", ".wav", ".mp4"}]
+    if not files:
+        raise DownloadError("audio-only download produced no file")
+    audio = files[0]
+    duration = float((info or {}).get("duration") or 0.0)
+    if duration <= 0:
+        duration, _, _ = _ffprobe_metadata(audio, settings)
+    subs = sorted(
+        candidate
+        for candidate in work_dir.glob("audio*.*")
+        if candidate.suffix.lower() in {".vtt", ".srt"}
+    )
+    log.info("audio-only: %s (%.0fs, %.1f MB)", audio.name, duration, audio.stat().st_size / 1e6)
+    return VideoSource(
+        url=url,
+        video_id=str((info or {}).get("id") or video_id_from_url(url)),
+        title=str((info or {}).get("title") or ""),
+        duration=duration,
+        uploader=str((info or {}).get("uploader") or ""),
+        path=audio,
+        subtitle_files=subs,
+        info={k: v for k, v in (info or {}).items() if k in {"id", "title", "duration", "uploader", "view_count"}},
+        audio_only=True,
+    )
+
+
+def download_section(
+    url: str,
+    start: float,
+    end: float,
+    work_dir: Path,
+    settings: Settings,
+) -> VideoSource:
+    """Download only ``[start, end)`` of the video, cut on keyframes."""
+    try:
+        import yt_dlp
+    except ImportError as exc:  # pragma: no cover
+        raise DownloadError("yt-dlp is not installed (pip install -r requirements.txt)") from exc
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"{int(start):05d}-{int(end):05d}"
+    opts = _ydl_opts(settings, work_dir, format_selector=FORMAT_CHAIN)
+    opts["outtmpl"] = str(work_dir / f"section-{tag}.%(ext)s")
+    opts["download_ranges"] = lambda info, ydl: [  # noqa: ARG005
+        {"start_time": float(start), "end_time": float(end)}
+    ]
+    opts["force_keyframes_at_cuts"] = True
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except Exception as exc:  # noqa: BLE001
+        raise DownloadError(f"could not download {start:.0f}-{end:.0f}s: {_one_line(str(exc))}") from exc
+
+    files = [
+        p
+        for p in sorted(work_dir.glob(f"section-{tag}.*"))
+        if p.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}
+    ]
+    if not files:
+        raise DownloadError("the section download produced no video file")
+    section = files[0]
+    duration, width, height = _ffprobe_metadata(section, settings)
+    log.info(
+        "section %.0f-%.0fs downloaded (%.1fs, %.1f MB)",
+        start,
+        end,
+        duration,
+        section.stat().st_size / 1e6,
+    )
+    return VideoSource(
+        url=url,
+        video_id=str((info or {}).get("id") or video_id_from_url(url)),
+        title=str((info or {}).get("title") or ""),
+        duration=duration or (end - start),
+        path=section,
+        width=width,
+        height=height,
+        info={"id": str((info or {}).get("id") or ""), "section": [start, end]},
+    )
+

@@ -31,10 +31,10 @@ on:
         default: karaoke
         options: [karaoke, plain, none]
       editing:
-        description: "Editing level"
+        description: "Editing level (talking = hard pause/filler/retake cuts + punch-ins)"
         type: choice
         default: full
-        options: [full, cuts, "off"]
+        options: [full, cuts, talking, "off"]
       watermark:
         description: "Optional watermark/handle, e.g. @yourchannel (blank = none)"
         default: ""
@@ -67,6 +67,14 @@ on:
         type: choice
         default: obscura
         options: [obscura, "off"]
+      audio_only:
+        description: "Analyse the audio only, then download just the chosen windows (fast on long streams)"
+        type: boolean
+        default: false
+      chat_heat:
+        description: "Use the live-chat replay as a signal (when the video has one)"
+        type: boolean
+        default: true
       publish_release:
         description: "Also publish the clips as a GitHub Release"
         type: boolean
@@ -216,6 +224,8 @@ jobs:
           YTDLP_EXTRA_ARGS: ${{ vars.YTDLP_EXTRA_ARGS }}
           CLIP_FIT: ${{ inputs.fit }}
           CLIP_BROWSER: ${{ inputs.browser == 'off' && '' || 'obscura' }}
+          CLIP_AUDIO_ONLY: ${{ inputs.audio_only }}
+          CLIP_CHAT_FETCH: ${{ inputs.chat_heat }}
           CLIP_LANGUAGE: ${{ inputs.language }}
           WHISPER_MODEL: ${{ inputs.whisper_model }}
           LLM_BACKEND: ${{ inputs.llm_backend }}

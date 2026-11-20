@@ -15,7 +15,7 @@ from pathlib import Path
 CAPTION_STYLES = ("karaoke", "plain", "none")
 FIT_MODES = ("crop", "blur", "pad", "facecam", "auto")
 LLM_BACKENDS = ("auto", "claude-code", "api", "heuristic")
-EDITING_MODES = ("full", "cuts", "off")
+EDITING_MODES = ("full", "cuts", "off", "talking")
 LOOKS = ("none", "clean", "punchy", "cinematic")
 
 _TRUTHY = {"1", "true", "t", "yes", "y", "on"}
@@ -173,6 +173,18 @@ class Settings:
 
     # signals
     signals: bool = True  # loudness markers for the picker (one ffmpeg pass)
+    chunk_span: float = 720.0  # seconds of transcript per LLM prompt (12 min)
+    retakes: bool = True  # drop a take that is repeated better a second time
+    punch_alternate: bool = False  # talking head: punch in on every other cut
+
+    # chat heat (a live_chat replay file, when the source has one)
+    chat: Path | None = None
+    chat_fetch: bool = True
+    chat_bucket: float = 5.0
+    chat_min: int = 6
+
+    # speed: analyse the audio first, download only the chosen windows
+    audio_only: bool = False
 
     # browser (obscura) — used only when yt-dlp is refused
     browser: str = ""
@@ -196,6 +208,7 @@ class Settings:
         self.out_dir = Path(self.out_dir)
         self.work_dir = Path(self.work_dir) if self.work_dir else None
         self.cookies = _path(self.cookies)
+        self.chat = _path(self.chat)
         self.proxy = (self.proxy or "").strip()
 
         self.clips = max(1, min(int(self.clips), 12))
@@ -217,6 +230,9 @@ class Settings:
         self.watermark = (self.watermark or "").strip()[:40]
         self.browser = (self.browser or "").strip()
         self.browser_timeout = max(15, min(int(self.browser_timeout), 600))
+        self.chunk_span = max(120.0, min(float(self.chunk_span), 3600.0))
+        self.chat_bucket = max(1.0, min(float(self.chat_bucket), 60.0))
+        self.chat_min = max(2, min(int(self.chat_min), 500))
         self._apply_editing_preset()
         self.words_per_caption = max(1, min(int(self.words_per_caption), 6))
         self.width = max(240, int(self.width))
@@ -244,6 +260,27 @@ class Settings:
                 self.look = "none"
             if untouched("progress_bar"):
                 self.progress_bar = False
+            return
+        if self.editing == "talking":
+            # A talking head is mostly silence and restarts: cut them hard and keep the
+            # frame from jumping by punching in on alternate cuts.
+            self.tighten = True
+            if untouched("max_pause"):
+                self.max_pause = 0.30
+            if untouched("pre_roll"):
+                self.pre_roll = 0.05
+            if untouched("post_roll"):
+                self.post_roll = 0.12
+            if untouched("remove_fillers"):
+                self.remove_fillers = True
+            if untouched("retakes"):
+                self.retakes = True
+            if untouched("punch_in"):
+                self.punch_in = 1.10
+            if untouched("punch_alternate"):
+                self.punch_alternate = True
+            if untouched("look"):
+                self.look = "clean"
             return
         # "cuts": tighten only, no visual grade
         self.tighten = True
@@ -320,6 +357,14 @@ def settings_from_env(**overrides) -> Settings:
         "claude_timeout": env_int("CLAUDE_TIMEOUT", 900),
         "bridge_port": env_int("CLIP_BRIDGE_PORT", 0),
         "signals": env_bool("CLIP_SIGNALS", True),
+        "chunk_span": env_float("CLIP_CHUNK_SPAN", 720.0),
+        "retakes": env_bool("CLIP_RETAKES", True),
+        "punch_alternate": env_bool("CLIP_PUNCH_ALTERNATE", False),
+        "chat": env_str("CLIP_CHAT"),
+        "chat_fetch": env_bool("CLIP_CHAT_FETCH", True),
+        "chat_bucket": env_float("CLIP_CHAT_BUCKET", 5.0),
+        "chat_min": env_int("CLIP_CHAT_MIN", 6),
+        "audio_only": env_bool("CLIP_AUDIO_ONLY", False),
         "browser": env_str("CLIP_BROWSER", "") or "",
         "browser_stealth": env_bool("CLIP_BROWSER_STEALTH", False),
         "browser_timeout": env_int("CLIP_BROWSER_TIMEOUT", 90),

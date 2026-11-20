@@ -79,6 +79,15 @@ def build_parser() -> argparse.ArgumentParser:
     editing.add_argument("--look", choices=LOOKS, help="colour grade preset")
     editing.add_argument("--no-progress-bar", dest="progress_bar", action="store_false", default=None)
     editing.add_argument("--watermark", help="small handle/text in the corner, e.g. @yourchannel")
+    editing.add_argument(
+        "--retakes", dest="retakes", action="store_true", default=None,
+        help="drop a line the speaker restarted and said again (talking head)",
+    )
+    editing.add_argument("--no-retakes", dest="retakes", action="store_false")
+    editing.add_argument(
+        "--punch-alternate", dest="punch_alternate", action="store_true", default=None,
+        help="punch in on every other cut (keeps a talking head from looking static)",
+    )
 
     captions = parser.add_argument_group("captions")
     captions.add_argument("--caption-style", choices=CAPTION_STYLES)
@@ -130,12 +139,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the browser with fingerprint spoofing (off by default)",
     )
     youtube.add_argument(
+        "--chat",
+        help="a live_chat replay file (yt-dlp writes *.live_chat.json)",
+    )
+    youtube.add_argument(
+        "--no-chat-fetch", dest="chat_fetch", action="store_false", default=None,
+        help="do not try to download the chat replay",
+    )
+    youtube.add_argument(
+        "--audio-only", dest="audio_only", action="store_true", default=None,
+        help=(
+            "analyse the audio only, then download just the windows that became clips "
+            "(much faster on long streams)"
+        ),
+    )
+
+    youtube.add_argument(
         "--list-formats",
         action="store_true",
         help="print the formats YouTube offers for each URL and exit",
     )
 
     misc = parser.add_argument_group("misc")
+    misc.add_argument(
+        "--chunk-span",
+        dest="chunk_span",
+        type=float,
+        help="seconds of transcript per prompt to the LLM (default 720 = 12 min)",
+    )
     misc.add_argument("--dry-run", action="store_true", default=None, help="plan + captions, no encoding")
     misc.add_argument("--keep-source", action="store_true", default=None, help="keep the downloaded video")
     misc.add_argument("--fail-fast", action="store_true", default=None)

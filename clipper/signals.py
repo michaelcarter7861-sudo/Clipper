@@ -1,4 +1,4 @@
-"""Cheap, honest signals that help the LLM find the hype: loudness.
+"""Cheap, honest signals that help the LLM find the hype: loudness and chat.
 
 Ported from the GTA 6 Clipper skill (``skills/gta6-clipper``, upstream
 ``vossashtonai/gta6-clipper`` @ 11cee2b, MIT): a streamer screaming is a real
@@ -114,13 +114,28 @@ def marker_for(start: float, end: float, loud: list[LoudEvent]) -> str:
     return ""
 
 
-def annotate_lines(segments, loud: list[LoudEvent]) -> list[str]:
-    """Transcript lines for a prompt, each tagged when it overlaps a loud moment."""
+def annotate_lines(segments, loud: list[LoudEvent], chat=None) -> list[str]:
+    """Transcript lines for a prompt, tagged when a signal lands inside them.
+
+    ``chat`` is an optional list of :class:`clipper.chat.ChatEvent`. Both markers are
+    evidence for the picker, never an instruction to cut there.
+    """
+    from .chat import at as chat_at
+    from .chat import marker_for as chat_marker
+
     lines: list[str] = []
     for segment in segments:
-        marker = marker_for(segment.start, segment.end, loud) if loud else ""
+        markers: list[str] = []
+        if loud:
+            marker = marker_for(segment.start, segment.end, loud)
+            if marker:
+                markers.append(marker)
+        if chat:
+            event = chat_at(chat, (segment.start + segment.end) / 2)
+            if event is not None:
+                markers.append(chat_marker(event))
         line = f"[{segment.start:6.1f} - {segment.end:6.1f}] {segment.text}"
-        lines.append(f"{line}   {marker}" if marker else line)
+        lines.append(f"{line}   {' '.join(markers)}" if markers else line)
     return lines
 
 
