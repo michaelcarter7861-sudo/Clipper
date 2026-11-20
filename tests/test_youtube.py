@@ -576,6 +576,7 @@ def test_a_plain_file_link_is_downloaded_without_yt_dlp(tmp_path: Path, monkeypa
     directory.mkdir()
     (directory / "clip.mp4").write_bytes(payload)
 
+    monkeypatch.setattr("clipper.youtube._usable_media", lambda path, settings: True)
     handler = functools.partial(_QuietHandler, directory=str(directory))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

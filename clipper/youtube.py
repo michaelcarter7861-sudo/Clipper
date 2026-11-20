@@ -566,6 +566,15 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
     local = local_media_path(url)
     if local is not None:
         return local_source(url, local, settings)
+
+    # A URL that names a media file is a file. yt-dlp only adds failure modes here (it
+    # treats the redirect target as a page, invents a title from the signed query, and can
+    # report a download it never wrote), so fetch the bytes ourselves first.
+    if _looks_like_a_file(url):
+        direct = _direct_file_fallback(url, work_dir, settings)
+        if direct is not None:
+            return direct
+        log.warning("the direct download did not work — asking yt-dlp instead")
     try:
         import yt_dlp
     except ImportError as exc:  # pragma: no cover
@@ -694,8 +703,9 @@ def _direct_file_fallback(url: str, work_dir: Path, settings: Settings) -> Video
     except Exception as exc:  # noqa: BLE001 - fall through to the other fallbacks
         log.warning("direct download failed: %s", _one_line(str(exc)))
         return None
-    if not target.exists() or target.stat().st_size < 1024:
-        log.warning("direct download produced no usable file")
+    if not _usable_media(target, settings):
+        log.warning("direct download produced a file that no decoder will open")
+        target.unlink(missing_ok=True)
         return None
 
     duration, width, height = _ffprobe_metadata(target, settings)
