@@ -204,6 +204,18 @@ def doctor_report(settings: Settings) -> list[tuple[str, bool, str]]:
     except Exception:
         checks.append(("yt-dlp", False, "not installed — pip install -r requirements.txt"))
 
+    from .youtube import js_runtime_status
+
+    runtimes = js_runtime_status()
+    checks.append(
+        (
+            "yt-dlp js runtime",
+            bool(runtimes),
+            ", ".join(f"{name}={path}" for name, path in sorted(runtimes.items()))
+            or "none found — install deno or node, YouTube needs it for signature challenges",
+        )
+    )
+
     from .transcribe import whisper_available
 
     checks.append(

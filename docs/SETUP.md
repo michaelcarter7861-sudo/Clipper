@@ -51,6 +51,13 @@ prints a table (`id / ext / res / fps / codec / size`) and the same rows land in
 `Requested format is not available`, the pipeline retries by itself with `best`, then `b` —
 so a narrow format selector can no longer kill a run.
 
+**A JS runtime is required.** Modern yt-dlp solves YouTube's signature (`nsig`) challenges with
+an external JS runtime, and its default is **Deno only** — which is not on GitHub runners.
+The workflow installs `deno` (via npm) and the code also hands yt-dlp the runner's `node`, so
+`js_runtimes` contains both. Without one, YouTube answers with storyboards only and every
+format selector says *"Requested format is not available"*. Check it with
+`python -m clipper --doctor` (line `yt-dlp js runtime`).
+
 The probe asks for **all** formats (`format: all`), so a video that only answers with
 storyboards is visible instead of looking like "no formats at all". When the first try fails
 with a format error, the ladder switches **player client** (`android` → `tv` → `web_safari` →
