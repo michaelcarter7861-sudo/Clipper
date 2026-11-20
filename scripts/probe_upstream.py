@@ -38,6 +38,9 @@ PIPED = [
     "https://pipedapi.nosebs.ru",
     "https://pipedapi.orangenet.cc",
     "https://pipedapi.astartes.nl",
+    "https://pipedapi.076.ne.jp",
+    "https://piped-api.privacy.com.de",
+    "https://pipedapi.darkness.services",
 ]
 
 INVIDIOUS = [
@@ -55,6 +58,13 @@ INVIDIOUS = [
     "https://inv.ggtyler.dev",
     "https://invidious.materialio.us",
     "https://invidious.privacyredirect.com",
+    "https://iv.datura.network",
+    "https://invidious.einfachzocken.eu",
+    "https://invidious.lunivers.trade",
+    "https://invidious.private.coffee",
+    "https://invidious.adminforge.de",
+    "https://invidious.nikkosphere.com",
+    "https://invidious.protokolla.fi",
 ]
 
 COBALT = [
@@ -85,35 +95,53 @@ def get(url: str, headers: dict | None = None, data: bytes | None = None) -> tup
 
 def probe_media(url: str) -> str:
     request = urllib.request.Request(
-        url, headers={"User-Agent": UA, "Range": "bytes=0-1023"}
+        url,
+        headers={
+            "User-Agent": UA,
+            "Range": "bytes=0-1023",
+            "Accept": "*/*",
+            "Origin": "https://www.youtube.com",
+            "Referer": "https://www.youtube.com/",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             size = len(response.read(2048))
-            return f"range={response.status} bytes={size}"
+            return f"{response.status}/{size}b"
     except urllib.error.HTTPError as exc:
-        return f"range={exc.code}"
+        return f"HTTP{exc.code}"
     except Exception as exc:  # noqa: BLE001
-        return f"range=fail {str(exc)[:60]}"
+        return f"fail({str(exc)[:40]})"
 
 
-def first_media(kind: str, payload: dict) -> str:
+def media_candidates(kind: str, payload: dict) -> list[tuple[str, str]]:
+    """``[("direct"|"proxy", url), …]`` — an API can answer while its media is refused."""
+    out: list[tuple[str, str]] = []
+    proxy = str(payload.get("proxyUrl") or "") if kind == "piped" else ""  # instance media host
+
+    def add(label: str, url: str) -> None:
+        if url:
+            out.append((label, url))
+
     if kind == "piped":
         for key in ("videoStreams", "audioStreams"):
             for stream in payload.get(key) or []:
+                if not isinstance(stream, dict) or not stream.get("url"):
+                    continue
+                url = str(stream["url"])
+                add("direct", url)
+                if proxy and not url.startswith(proxy):
+                    parts = urllib.parse.urlsplit(url)
+                    tail = parts.path + (f"?{parts.query}" if parts.query else "")
+                    add("proxy", f"{proxy.rstrip('/')}/{parts.netloc}{tail}")
+                break
+    else:
+        for key in ("formatStreams", "adaptiveFormats"):
+            for stream in payload.get(key) or []:
                 if isinstance(stream, dict) and stream.get("url"):
-                    proxy = str(payload.get("proxyUrl") or "")
-                    if proxy:
-                        parts = urllib.parse.urlsplit(stream["url"])
-                        tail = parts.path + (f"?{parts.query}" if parts.query else "")
-                        return f"{proxy.rstrip('/')}/{parts.netloc}{tail}"
-                    return str(stream["url"])
-        return ""
-    for key in ("formatStreams", "adaptiveFormats"):
-        for stream in payload.get(key) or []:
-            if isinstance(stream, dict) and stream.get("url"):
-                return str(stream["url"])
-    return ""
+                    add("direct", str(stream["url"]))
+                    break
+    return out[:4]
 
 
 def check(kind: str, base: str, vid: str) -> str:
@@ -149,9 +177,12 @@ def check(kind: str, base: str, vid: str) -> str:
     )
     if not streams:
         return f"empty {base:<45} streams=0"
-    media = first_media(kind, payload)
+    media: list[str] = []
+    for label, url in media_candidates(kind, payload):
+        media.append(f"{label}:{probe_media(url)}")
     title = str(payload.get("title") or payload.get("lengthSeconds") or "")[:24]
-    return f"OK    {base:<45} streams={streams:<3} media={probe_media(media) if media else 'none'} title={title}"
+    detail = " ".join(media) if media else "media=none"
+    return f"OK    {base:<45} streams={streams:<3} {detail} title={title}"
 
 
 def main() -> int:
