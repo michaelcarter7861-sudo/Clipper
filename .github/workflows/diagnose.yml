@@ -187,6 +187,15 @@ jobs:
             obscura --version || true
             python -m clipper --check-youtube --browser obscura 2>&1 | tail -n 5 || true
             echo
+            echo "== raw obscura probes =="
+            set +e
+            obscura fetch "$URL" --eval "document.title" --timeout 60 2>&1 | head -n 3
+            echo "exit: $?"
+            obscura fetch "$URL" --dump cookies --timeout 60 2>&1 | head -c 300
+            echo
+            obscura fetch --help 2>&1 | head -n 25
+            set -e
+            echo
             echo "== browser player response =="
             python - <<'PY'
           import json, os

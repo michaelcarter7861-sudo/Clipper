@@ -128,10 +128,14 @@ def browser_available(settings: Settings) -> tuple[bool, str]:
     except Exception as exc:  # noqa: BLE001 - a broken binary must not break a run
         return False, f"could not run {binary}: {exc}"
     version = (completed.stdout or completed.stderr or "").strip().splitlines()
-    return True, f"{Path(binary).name} {version[0] if version else ''}".strip()
+    answer = version[0].strip() if version else ""
+    if answer.lower().startswith(Path(binary).name.lower()):
+        return True, answer
+    return True, f"{Path(binary).name} {answer}".strip()
 
 
 def _command(settings: Settings, *args: str) -> list[str]:
+    """Global flags, then the subcommand and its arguments, then --quiet."""
     binary = browser_binary(settings)
     if not binary:
         raise RuntimeError("browser binary not found")
@@ -141,8 +145,9 @@ def _command(settings: Settings, *args: str) -> list[str]:
     proxy = (getattr(settings, "proxy", "") or "").strip()
     if proxy:
         command += ["--proxy", proxy]
-    command += ["--quiet"]
-    return command + list(args)
+    # --quiet belongs to the subcommand, the rest are global flags; obscura
+    # rejects a subcommand flag placed before the subcommand.
+    return command + list(args) + ["--quiet"]
 
 
 def _run(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:

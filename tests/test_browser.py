@@ -249,6 +249,9 @@ print(json.dumps({{"cookies": json.loads({json.dumps(json.dumps(COOKIES))})}}))
 def test_command_respects_stealth_and_proxy_flags(fake_browser: Path):
     plain = browser._command(Settings(browser=str(fake_browser)), "fetch", "u")
     assert "--stealth" not in plain
+    # global flags before the subcommand, --quiet last (obscura is strict here)
+    assert plain[1:].index("fetch") < plain.index("--quiet")
+    assert "--quiet" == plain[-1]
     loud = browser._command(
         Settings(browser=str(fake_browser), browser_stealth=True, proxy="http://p:1"), "fetch", "u"
     )
