@@ -14,6 +14,7 @@ from pathlib import Path
 from .captions import caption_filters, write_ass
 from .config import Settings
 from .edit import EditPlan, build_edit_plan, retime_transcript, summarise
+from .facecam import DETECTING_FITS, Layout, StackPlan, detect_layout, plan_stack
 from .log import get_logger
 from .moments import ClipPlan
 from .subtitles import Transcript
@@ -36,6 +37,7 @@ class RenderResult:
     edit: EditPlan | None = None
     output_duration: float = 0.0
     editing: str = ""
+    layout: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -146,6 +148,30 @@ def _even(value: float) -> int:
     return int(value) // 2 * 2
 
 
+def _stack_statements(
+    settings: Settings, stack: StackPlan, src: str = "[0:v]"
+) -> tuple[list[str], str]:
+    """Facecam on top, gameplay below. Returns ``(statements, output_label)``."""
+    width = _even(settings.width)
+    cam_x, cam_y, cam_w, cam_h = stack.cam
+    game_x, game_y, game_w, game_h = stack.game
+    statements = [
+        f"{src}split=2[camsrc][gamesrc]",
+        (
+            f"[camsrc]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},"
+            f"scale={width}:{stack.top_h}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{stack.top_h}[camtop]"
+        ),
+        (
+            f"[gamesrc]crop={game_w}:{game_h}:{game_x}:{game_y},"
+            f"scale={width}:{stack.bottom_h}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{stack.bottom_h}[gamebottom]"
+        ),
+        "[camtop][gamebottom]vstack=2[stacked]",
+    ]
+    return statements, "[stacked]"
+
+
 def _base_video_chain(settings: Settings, src: str = "[0:v]") -> str:
     """Reframe step as filter-graph statements, ending on an unlabelled node."""
     width, height = _even(settings.width), _even(settings.height)
@@ -227,6 +253,7 @@ def build_filter_complex(
     ass_filter: str | None,
     with_audio: bool = True,
     edit: EditPlan | None = None,
+    stack: StackPlan | None = None,
 ) -> str:
     """Full graph. ``duration`` is the *output* duration (fades, progress bar)."""
     statements: list[str] = []
@@ -236,8 +263,12 @@ def build_filter_complex(
         trim_graph, video_src, audio_src = _trim_graph(settings, edit, with_audio)
         statements.append(trim_graph)
 
-    video = _base_video_chain(settings, video_src)
-    video += ",setsar=1"
+    if stack is not None:
+        stack_statements, label = _stack_statements(settings, stack, video_src)
+        statements.extend(stack_statements)
+        video = f"{label}setsar=1"
+    else:
+        video = _base_video_chain(settings, video_src) + ",setsar=1"
     if edit is not None and abs(edit.speed - 1.0) > 1e-6:
         video += f",setpts=PTS/{edit.speed:.4f}"
     video += f",fps={settings.fps}"
@@ -297,6 +328,7 @@ def build_command(
     ass_path: Path | None = None,
     with_audio: bool = True,
     edit: EditPlan | None = None,
+    stack: StackPlan | None = None,
 ) -> list[str]:
     source_duration = max(0.5, end - start)
     output_duration = edit.output_duration if edit is not None else source_duration
@@ -323,6 +355,7 @@ def build_command(
             ass_filter=ass_filter,
             with_audio=with_audio,
             edit=edit,
+            stack=stack,
         ),
         "-map",
         "[v]",
@@ -358,6 +391,40 @@ def build_command(
 # --------------------------------------------------------------------------- #
 # rendering
 # --------------------------------------------------------------------------- #
+def _resolve_layout(
+    source: Path,
+    plan: ClipPlan,
+    settings: Settings,
+    *,
+    height_hint: int = 1920,
+) -> tuple[StackPlan | None, Layout | None]:
+    """Detect the facecam for this clip window. Failures fall back to a reframe."""
+    forced = getattr(plan, "layout", "") or ""
+    requested = forced or settings.fit
+    if requested not in DETECTING_FITS:
+        return None, None
+    layout = detect_layout(source, settings=settings, start=plan.start, end=plan.end)
+    if forced and forced in ("facecam", "gameplay", "cam"):
+        layout.mode = forced
+    stack = plan_stack(settings, layout)
+    if stack is None:
+        if layout.mode == "facecam" and layout.box is None:
+            log.info("clip %d: facecam box unusable, using a plain reframe", plan.index)
+        elif layout.mode == "unknown":
+            log.info("clip %d: no facecam answer (%s)", plan.index, layout.note or "unknown")
+        return None, layout
+    log.info(
+        "clip %d: facecam %.0fx%.0f at %.0f,%.0f -> top panel %d px",
+        plan.index,
+        layout.box[2],
+        layout.box[3],
+        layout.box[0],
+        layout.box[1],
+        stack.top_h,
+    )
+    return stack, layout
+
+
 def render_clip(
     source: Path,
     out_path: Path,
@@ -370,6 +437,10 @@ def render_clip(
     timeout: int = 2400,
 ) -> RenderResult:
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    stack, layout = _resolve_layout(
+        source, plan, settings, height_hint=settings.height
+    )
 
     edit_plan = build_edit_plan(transcript, plan.start, plan.end, settings)
     output_duration = edit_plan.output_duration
@@ -393,6 +464,8 @@ def render_clip(
             settings,
             hook=plan.hook,
             clip_duration=output_duration,
+            caption_margin_v=stack.caption_margin_v if stack else None,
+            hook_margin_v=stack.hook_margin_v if stack else None,
         )
 
     audio = has_audio(settings.ffprobe, source)
@@ -405,6 +478,7 @@ def render_clip(
         ass_path=ass_path,
         with_audio=audio,
         edit=edit_plan,
+        stack=stack,
     )
 
     def result(thumb: Path | None = None, elapsed: float = 0.0) -> RenderResult:
@@ -418,6 +492,7 @@ def render_clip(
             edit=edit_plan,
             output_duration=output_duration,
             editing=edit_summary,
+            layout=layout.mode if layout is not None else "",
         )
 
     if dry_run:
@@ -445,6 +520,7 @@ def render_clip(
             ass_path=ass_path,
             with_audio=False,
             edit=edit_plan,
+            stack=stack,
         )
         completed = _run(command, timeout=timeout)
 

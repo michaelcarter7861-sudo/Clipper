@@ -1,0 +1,5 @@
+# Optional: find a streamer's facecam so a clip can be stacked 9:16.
+# Only needed for `--fit facecam` / `--fit auto`; everything else works without it.
+# Pinned below 5.x on purpose: OpenCV 5 removed the Haar CascadeClassifier that
+# the detector uses (cv2 5.x has no cv2.CascadeClassifier attribute).
+opencv-python-headless>=4.9,<5

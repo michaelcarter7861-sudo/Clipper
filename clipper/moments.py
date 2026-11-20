@@ -48,6 +48,7 @@ class ClipPlan:
     score: int = 50
     index: int = 0
     source: str = "llm"
+    layout: str = ""  # "" = decide from --fit, else force facecam | gameplay | cam
 
     @property
     def duration(self) -> float:
@@ -64,6 +65,7 @@ class ClipPlan:
             "reason": self.reason,
             "score": self.score,
             "source": self.source,
+            "layout": self.layout,
         }
 
 

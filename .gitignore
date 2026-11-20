@@ -11,6 +11,10 @@ _ingest/
 *.srt
 *.vtt
 
+# the facecam test fixture is part of the repo on purpose
+!samples/facecam-sample.mp4
+!samples/facecam-sample.vtt
+
 # secrets
 .env
 cookies.txt

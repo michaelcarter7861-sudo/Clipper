@@ -35,6 +35,7 @@ class VideoSource:
     formats: list[dict] = field(default_factory=list)
     chosen_format: str = ""
     live_status: str = ""
+    local: bool = False  # a file the user pointed at: never delete it
 
     @property
     def slug(self) -> str:
@@ -53,6 +54,7 @@ class VideoSource:
             "file": str(self.path) if self.path else None,
             "chosen_format": self.chosen_format,
             "live_status": self.live_status,
+            "local": self.local,
             "formats": self.formats,
         }
 
@@ -420,6 +422,7 @@ def local_source(url: str, path: Path, settings: Settings) -> VideoSource:
         width=width,
         height=height,
         subtitle_files=subtitles,
+        local=True,
         info={"id": slugify(path.stem), "title": path.stem, "duration": duration},
     )
 

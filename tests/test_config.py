@@ -16,6 +16,14 @@ def test_parse_urls_handles_separators_and_duplicates():
     ]
 
 
+def test_parse_urls_keeps_local_files_and_file_links(tmp_path):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"not really a video")
+    assert parse_urls(str(clip)) == [str(clip)]
+    assert parse_urls(f"file://{clip}") == [f"file://{clip}"]
+    assert parse_urls("/nope/missing.mp4") == []
+
+
 def test_parse_urls_accepts_lists_and_none():
     assert parse_urls(None) == []
     assert parse_urls(["https://a.test/1", "https://a.test/2"]) == [

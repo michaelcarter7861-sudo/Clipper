@@ -92,7 +92,15 @@ def build_parser() -> argparse.ArgumentParser:
     captions.add_argument("--no-hook-titles", dest="hook_titles", action="store_false", default=None)
 
     render = parser.add_argument_group("render")
-    render.add_argument("--fit", choices=FIT_MODES, help="crop | blur | pad")
+    render.add_argument(
+        "--fit",
+        choices=FIT_MODES,
+        help=(
+            "crop | blur | pad | facecam | auto — facecam stacks a streamer's "
+            "camera on top of the gameplay (needs opencv-python-headless); "
+            "auto uses it when it finds one, otherwise crop"
+        ),
+    )
     render.add_argument("--fps", type=int)
     render.add_argument("--crf", type=int, help="x264 quality (lower = better, bigger)")
     render.add_argument("--preset", help="x264 preset")

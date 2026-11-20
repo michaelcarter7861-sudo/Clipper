@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 CAPTION_STYLES = ("karaoke", "plain", "none")
-FIT_MODES = ("crop", "blur", "pad")
+FIT_MODES = ("crop", "blur", "pad", "facecam", "auto")
 LLM_BACKENDS = ("auto", "claude-code", "api", "heuristic")
 EDITING_MODES = ("full", "cuts", "off")
 LOOKS = ("none", "clean", "punchy", "cinematic")
@@ -65,8 +65,21 @@ def env_list(name: str) -> list[str]:
     return [part for part in re.split(r"[\s,;]+", raw) if part]
 
 
+def _is_source(candidate: str) -> bool:
+    """A source is a link (http/https/file) or a media file that exists locally."""
+    lowered = candidate.lower()
+    if lowered.startswith(("http://", "https://", "file://")):
+        return True
+    if "://" in candidate:
+        return False
+    try:
+        return Path(candidate).expanduser().is_file()
+    except OSError:
+        return False
+
+
 def parse_urls(raw: str | Iterable[str] | None) -> list[str]:
-    """Split a raw input string into a de-duplicated list of http(s) URLs."""
+    """Split a raw input into a de-duplicated list of links or local files."""
     if raw is None:
         return []
     if isinstance(raw, str):
@@ -79,9 +92,8 @@ def parse_urls(raw: str | Iterable[str] | None) -> list[str]:
     urls: list[str] = []
     for candidate in candidates:
         candidate = candidate.strip().strip("'\"")
-        if candidate and candidate.lower().startswith(("http://", "https://")):
-            if candidate not in urls:
-                urls.append(candidate)
+        if candidate and _is_source(candidate) and candidate not in urls:
+            urls.append(candidate)
     return urls
 
 

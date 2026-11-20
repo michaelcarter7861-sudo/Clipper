@@ -80,7 +80,7 @@ preview, hook, score aur `download mp4` link wahan milega.
 | `editing` | `full` | `full` (jump cuts + grade + punch-in + progress bar) · `cuts` (sirf jump cuts) · `off` (raw) |
 | `watermark` | *khali* | corner mein chhota handle/text, e.g. `@yourchannel` |
 | `max_height` | `1080` | sab se oonchi source resolution jo download ho (720 se tez run) |
-| `fit` | `crop` | `crop` (center crop) · `blur` (blurred background) · `pad` (black bars) |
+| `fit` | `crop` | `crop` (center crop) · `blur` (blurred background) · `pad` (black bars) · **`facecam`** (streamer ka cam upar, gameplay neeche) · `auto` (facecam mile to wohi, warna crop) |
 | `language` | `auto` | `en`, `hi`, `ur`, … subtitles/whisper ke liye |
 | `whisper_model` | `base` | jab video par subtitles na hon |
 | `llm_backend` | `auto` | `auto` · `claude-code` · `api` · `heuristic` |
@@ -247,7 +247,7 @@ out/
 --caption-font "DejaVu Sans"
 --words-per-caption 3
 --no-hook-titles          upar wala hook title band karo
---fit crop|blur|pad
+--fit crop|blur|pad|facecam|auto
 --fps 30 --crf 20 --preset veryfast
 --llm-backend auto|claude-code|api|heuristic
 --language en|hi|ur|…
@@ -305,6 +305,37 @@ Aik dafa ka naap (is repo par, aap ke `YT_COOKIES` ke sath):
 Yani GitHub-hosted runners par **har OS aur har IP** par wohi jawab aata hai: cookies se session
 qabool hota hai magar stream nahi milta, aur bina cookies bot-check. Ye **code se hal nahi hota** —
 runner ka IP hi masla hai.
+
+### Facecam layout — stream clips ko asli look (`fit: facecam`)
+
+Twitch/Kick/YouTube streams par streamer ka chehra ek chhote dabbe mein hota hai. `fit: facecam`
+(clips workflow ka dropdown) us dabbe ko dhoondta hai aur clip banata hai: **chehra upar,
+gameplay neeche, 1080x1920**, hook title seam ke neeche, captions gameplay panel par.
+
+Kaam kaise karta hai (GTA 6 Clipper skill se liya gaya algorithm):
+
+1. Clip ki window se 12 frames nikalta hai (`ffmpeg`).
+2. Har frame mein chehra dhoondta hai (OpenCV Haar cascade) aur woh chehra rakhta hai jo
+   **ek hi jagah** bar bar mila — yahi facecam ko gameplay wale chehre se alag karta hai.
+3. Us chehre ke charon taraf static seedhi lines scan karke overlay ka box nikalta hai.
+4. Gameplay ka crop overlay se **door** shift kar deta hai, warna chehra do dafa dikhta.
+
+Jaise bhi kuch ghalat ho (OpenCV na ho, chehra na mile), render **crop** par gir jata hai —
+run fail nahi hota. Log mein `clip 1: no facecam answer (…)` ya `facecam 155x121 at 18,202`
+likha aata hai, aur `clips.json` mein har clip ka `layout`.
+
+Setup: `pip install -r requirements-facecam.txt` (OpenCV 4.x — 5.x ne Haar detector hata diya
+hai, is liye pin kiya hua hai). Workflow khud install karta hai jab `fit` facecam/auto ho.
+
+Bina YouTube ke test karna ho to repo mein sample hai:
+
+```
+fit  = facecam
+urls = samples/facecam-sample.mp4
+```
+
+(Repo ke andar ka path seedha chal jata hai — `samples/facecam-sample.vtt` us ka transcript hai,
+is liye is sample par Whisper ki bhi zaroorat nahi.)
 
 ### Runner ka IP block ho to (GitHub Actions ka sab se bara masla)
 

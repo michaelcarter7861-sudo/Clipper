@@ -44,10 +44,10 @@ on:
         default: "1080"
         type: string
       fit:
-        description: "How to fill a 9:16 frame"
+        description: "How to fill a 9:16 frame (facecam = cam on top, gameplay below)"
         type: choice
         default: crop
-        options: [crop, blur, pad]
+        options: [crop, blur, pad, facecam, auto]
       language:
         description: "Preferred language (auto, en, hi, ur, …)"
         default: auto
@@ -98,6 +98,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             requirements.txt
+            requirements-facecam.txt
             requirements-whisper.txt
 
       - name: Install ffmpeg and fonts
@@ -111,6 +112,10 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: whisper-${{ inputs.whisper_model }}-${{ runner.os }}
+
+      - name: Install the facecam detector (only for fit=facecam/auto)
+        if: ${{ inputs.fit == 'facecam' || inputs.fit == 'auto' }}
+        run: pip install -r requirements-facecam.txt
 
       - name: Install Python dependencies
         run: |
