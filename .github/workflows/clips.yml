@@ -238,6 +238,9 @@ jobs:
             echo "::error::Add at least one YouTube link in the 'urls' input."
             exit 1
           fi
+          # pipefail: without it `tee` hides a non-zero exit and a run that produced
+          # nothing still shows up green (that is exactly what happened twice).
+          set -o pipefail
           python -m clipper --doctor || true
           python -m clipper 2>&1 | tee /tmp/clipper.log
 
