@@ -122,6 +122,9 @@ jobs:
             echo
             echo "== public instances =="
             python scripts/probe_upstream.py "$URL" || true
+            echo
+            echo "== public instances (curl) =="
+            bash scripts/probe_curl.sh "$URL" || true
           } >> "$report" 2>&1
           sed -n '/== public instances ==/,$p' "$report"
 
