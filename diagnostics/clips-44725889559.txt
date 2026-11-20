@@ -1,0 +1,46 @@
+run 44725889559 · 1866406 · 2026-11-20T11:14:54Z
+fit=facecam editing=cuts browser=off clips=2
+
+== out/ ==
+      3514  out/facecam-sample-facecam-sample/_work/transcript.json
+      2404  out/facecam-sample-facecam-sample/clip-01-okay-chat-this-is-the-craziest-t.ass
+     48248  out/facecam-sample-facecam-sample/clip-01-okay-chat-this-is-the-craziest-t.jpg
+   4744479  out/facecam-sample-facecam-sample/clip-01-okay-chat-this-is-the-craziest-t.mp4
+       303  out/facecam-sample-facecam-sample/clip-01-okay-chat-this-is-the-craziest-t.txt
+      1416  out/facecam-sample-facecam-sample/clips.json
+      2244  out/facecam-sample-facecam-sample/index.html
+       291  out/facecam-sample-facecam-sample/info.json
+         2  out/facecam-sample-facecam-sample/signals.json
+      3514  out/facecam-sample-facecam-sample/transcript.json
+      1130  out/index.html
+      2184  out/manifest.json
+       577  out/report.md
+
+== ffmpeg ==
+ffmpeg version 8.0.1-3ubuntu2 Copyright (c) 2000-2025 the FFmpeg developers
+built with gcc 15 (Ubuntu 15.2.0-13ubuntu3)
+
+== log tail ==
+11:14:49  INFO    Clipper v1.0.0 · 1 URL(s) · ffmpeg=ffmpeg
+11:14:49  INFO    LLM provider: groq · llama-3.3-70b-versatile · https://api.groq.com/openai/v1
+11:14:49  INFO    brain: heuristic (no LLM)
+::group::Video: samples/facecam-sample.mp4
+::group::Downloading
+11:14:49  INFO    using the local file facecam-sample.mp4 (12.0s)
+::endgroup::
+11:14:49  INFO    downloaded: facecam-sample (12.0s)
+::group::Reading subtitles: facecam-sample.vtt
+::endgroup::
+11:14:49  INFO    subtitles gave 1 segments / 43 words
+::group::Listening for loud moments
+::endgroup::
+11:14:49  INFO    audio signals: no loud moments found
+11:14:49  INFO    selected 1 clip(s) via heuristic
+11:14:49  INFO    clip 1: facecam 155x121 at 18,202 -> top panel 842 px
+11:14:49  INFO    rendering clip 1 (0.0s → 12.0s, 12.0s in / 12.0s out)
+11:14:53  INFO    clip 1 done in 3.5s (4.7 MB, 12.0s)
+::endgroup::
+::notice::done: 1 clip(s) from 1 video(s) in 0.1 min
+11:14:53  INFO    done: 1 clip(s) from 1 video(s) in 0.1 min
+
+Clips are in /home/runner/work/Clipper/Clipper/out  (open index.html)
