@@ -1,0 +1,126 @@
+url: https://youtu.be/DENbjnmSems
+date: 2026-11-20T09:19:04Z
+runner ip: 68.220.59.49
+
+== versions ==
+Python 3.12.16
+yt-dlp 2026.10.26
+deno 2.9.6 (stable, release, x86_64-unknown-linux-gnu)
+v24.22.3
+
+== clipper --check-youtube ==
+09:19:06  WARNING yt-dlp: ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+youtube: FAIL — YouTube asked this runner to prove it is not a bot. Add a cookies.txt file as the YT_COOKIES secret (see docs/SETUP.md).
+
+== clipper --list-formats ==
+09:19:08  WARNING yt-dlp: ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+Traceback (most recent call last):
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1728, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1863, in __extract_info
+    ie_result = ie.extract(url)
+                ^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/extractor/common.py", line 764, in extract
+    ie_result = self._real_extract(url)
+                ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/extractor/youtube/_video.py", line 4083, in _real_extract
+    self.raise_no_formats(reason, expected=True)
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/extractor/common.py", line 1271, in raise_no_formats
+    raise ExtractorError(msg, expected=expected, video_id=video_id)
+yt_dlp.utils.ExtractorError: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/work/Clipper/Clipper/clipper/youtube.py", line 455, in probe_formats
+    info = ydl.extract_info(url, download=False)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1717, in extract_info
+    return self.__extract_info(url, self.get_info_extractor(key), download, extra_info, process)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1746, in wrapper
+    self.report_error(str(e), e.format_traceback())
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1162, in report_error
+    self.trouble(f'{self._format_err("ERROR:", self.Styles.ERROR)} {message}', *args, **kwargs)
+  File "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/yt_dlp/YoutubeDL.py", line 1100, in trouble
+    raise DownloadError(message, exc_info if exc_info and exc_info[0] else sys.exc_info())
+yt_dlp.utils.DownloadError: ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/runner/work/Clipper/Clipper/clipper/__main__.py", line 6, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/runner/work/Clipper/Clipper/clipper/cli.py", line 159, in main
+    return max(list_formats(url, settings) for url in settings.urls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/Clipper/Clipper/clipper/cli.py", line 159, in <genexpr>
+    return max(list_formats(url, settings) for url in settings.urls)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/Clipper/Clipper/clipper/youtube.py", line 521, in list_formats
+    info = probe_formats(url, Path(tmp), settings)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/Clipper/Clipper/clipper/youtube.py", line 459, in probe_formats
+    raise DownloadError(_friendly_error(text)) from exc
+clipper.youtube.DownloadError: YouTube asked this runner to prove it is not a bot. Add a cookies.txt file as the YT_COOKIES secret (see docs/SETUP.md).
+
+== yt-dlp -F (player_client=default) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading tv samsung player API JSON
+[youtube] DENbjnmSems: Downloading visionos player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=android) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading android player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=ios) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading ios player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=tv) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading tv client config
+[youtube] DENbjnmSems: Downloading player 6b3d0364-main
+[youtube] DENbjnmSems: Downloading tv player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=web_safari) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading web safari client config
+[youtube] DENbjnmSems: Downloading web safari player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=mweb) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading mweb client config
+[youtube] DENbjnmSems: Downloading mweb player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -F (player_client=tv_embedded) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading tv samsung player API JSON
+[youtube] DENbjnmSems: Downloading visionos player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+== yt-dlp -f b (real download, 90 s cap) ==
+[youtube] Extracting URL: https://youtu.be/DENbjnmSems
+[youtube] DENbjnmSems: Downloading webpage
+[youtube] DENbjnmSems: Downloading tv samsung player API JSON
+[youtube] DENbjnmSems: Downloading visionos player API JSON
+ERROR: [youtube] DENbjnmSems: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+no file downloaded
+
