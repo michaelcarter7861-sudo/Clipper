@@ -274,6 +274,7 @@ Poori list: `python -m clipper --help`
 |---|---|
 | `Sign in to confirm you're not a bot` | Browser se `cookies.txt` export karein aur `YT_COOKIES` secret mein daal dein (raw ya base64). Check karne ke liye: `python -m clipper.cookies --check cookies.txt --test`. Details: [docs/SETUP.md](docs/SETUP.md#youtube-cookies) |
 | `Requested format is not available` | Ab khud handle hota hai: default client → `android` → `tv` → `web_safari` → `ios` → `mweb` → `best` → `b`, aur cookies ke sath ek cookie-free try bhi |
+| `YouTube is blocking this machine's IP` (naya message) | Runner ka IP YouTube ke liye flagged hai — link ka masla nahi. Neeche "Runner ka IP block ho to" parhein |
 | `youtube test: PASS` par phir bhi formats nahi | Runner par **JS runtime** (deno ya node) chahiye — YouTube ki signature challenge ke liye. Workflow khud `deno` install karta hai (fail ho to node se kaam chalta hai). Local par: `npm i -g deno` ya node install karein; check: `python -m clipper --doctor` ki `yt-dlp js runtime` line |
 | `Formats it listed: none` / "storyboard images only" | YouTube ne sirf thumbnails diye, asli stream nahi. Yani is runner ke IP/cookie session par **proof-of-origin (PO token)** check lag raha hai. Hal: `YT_PROXY` (residential proxy) set karein, ya `YT_COOKIES` naye browser session se dobara export karein. Artifact mein `out/formats.txt` dekhein — har koshish ki asli wajah wahan likhi hoti hai |
 | Live stream (`/live/...`) | Live par formats badalte rehte hain. Stream khatam hone ke baad `https://www.youtube.com/watch?v=ID` se chalayein |
@@ -285,6 +286,31 @@ Poori list: `python -m clipper --help`
 | LLM ne ghalat timings diye | `--llm-backend api` + `LLM_MODEL` mein bara model; ya `claude-code` |
 | Actions minutes khatam | Private repo par minutes count hote hain; public repo par free. Ek 10-min video ≈ 8–15 min runner time |
 | Clip lambai ajeeb | `min_duration` / `max_duration` set karein; clip boundaries word-timings par snap hoti hain |
+
+### Runner ka IP block ho to (GitHub Actions ka sab se bara masla)
+
+GitHub runners ke IP **datacenter** ke hote hain, aur YouTube unhein aksar sirf thumbnails deta hai.
+Pehchan: run ke summary mein **"YouTube access: BLOCKED"** ya error mein *"blocking this machine's IP"*.
+
+Teen raste (pehla sab se pakka):
+
+1. **Residential proxy** — secret `YT_PROXY` = `http://user:pass@host:port` (koi bhi residential
+   proxy service; datacenter proxy se faida nahi hota). Phir workflow dobara chalayein.
+2. **Direct file link** — YouTube se video nikalne ke bajaye file hi de dein:
+   - kisi bhi tarah video file hasil karein (apna upload, client ka kaam, licensed footage),
+   - usay Dropbox par daal ke link ka `?dl=0` → `?dl=1` kar dein,
+   - wohi link `urls` input mein paste karein. Pipeline direct file par YouTube ko touch hi
+     nahi karti (thumbnails ki list banane ki zaroorat nahi), sirf transcript + clips banati hai.
+3. **Local / Colab** — jahan IP residential (ya Google ka) ho:
+   ```bash
+   python -m clipper --url "/path/video.mp4" --editing full --count 3
+   ```
+   Local file paths aur `file://` links bhi chalte hain. Phone se Colab:
+   `!git clone https://github.com/michaelcarter7861-sudo/Clipper && !pip install -r Clipper/requirements.txt`
+   phir `!cd Clipper && python -m clipper --url "LINK"`.
+
+Quick test: `python -m clipper --check-youtube` → `PASS` matlab is machine se YouTube chal raha hai,
+`FAIL` matlab IP hi block hai (proxy chahiye).
 
 Zyada: [docs/SETUP.md](docs/SETUP.md) aur [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

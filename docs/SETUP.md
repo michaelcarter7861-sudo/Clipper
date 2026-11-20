@@ -71,6 +71,21 @@ Live links (`/live/…`) are fetched from the start of the stream (warning in th
 formats on a running stream keep changing — clipping an already-finished stream
 (`/watch?v=…`) is far more reliable. Upcoming streams are rejected with a clear message.
 
+### When YouTube blocks the runner
+
+`python -m clipper --check-youtube` probes a public-domain video. If even that yields no
+downloadable format, the block is on the machine's IP (GitHub runners are datacenter
+addresses) and no code change helps:
+
+- **`YT_PROXY`** — a *residential* proxy (`http://user:pass@host:port`) is the reliable fix.
+- **Direct file link** — pass a direct video URL (Dropbox `?dl=1`, a signed S3 link, …) and the
+  pipeline skips YouTube entirely: no probe, no format ladder, just transcript + clips.
+- **Local file** — `python -m clipper --url "/path/video.mp4"` (or a `file://` link) treats an
+  existing file as the source, with ffprobe for duration and a sibling `.vtt`/`.srt` for captions.
+
+Every failed download leaves `out/formats.txt` in the artifact: the raw format list, the JS
+runtime that was available, and the exact error of every attempt (client by client).
+
 See the formats yourself without downloading anything:
 
 ```bash

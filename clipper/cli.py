@@ -106,6 +106,11 @@ def build_parser() -> argparse.ArgumentParser:
     youtube.add_argument("--max-height", dest="max_video_height", type=int, help="max source height")
     youtube.add_argument("--proxy", help="route yt-dlp through a proxy, e.g. http://host:port")
     youtube.add_argument(
+        "--check-youtube",
+        action="store_true",
+        help="probe a public video and report whether YouTube serves this machine",
+    )
+    youtube.add_argument(
         "--list-formats",
         action="store_true",
         help="print the formats YouTube offers for each URL and exit",
@@ -126,6 +131,7 @@ def settings_from_args(argv: list[str] | None = None) -> tuple[Settings, argpars
     overrides = {key: value for key, value in vars(args).items() if value is not None}
     overrides.pop("doctor", None)
     overrides.pop("list_formats", None)
+    overrides.pop("check_youtube", None)
     settings = settings_from_env(**overrides)
     return settings, args
 
@@ -136,6 +142,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.doctor:
         return doctor_cli(settings)
+
+    if getattr(args, "check_youtube", False):
+        from .youtube import youtube_reachable
+
+        ok, reason = youtube_reachable(settings)
+        print(f"youtube: {'PASS' if ok else 'FAIL'} — {reason}")
+        return 0 if ok else 1
 
     if getattr(args, "list_formats", False):
         if not settings.urls:

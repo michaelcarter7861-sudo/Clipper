@@ -153,6 +153,24 @@ jobs:
             echo "CLIP_COOKIES=$CLIP_WORK_DIR/cookies.txt" >> "$GITHUB_ENV"
           fi
 
+      - name: Check YouTube access from this runner (informational)
+        continue-on-error: true
+        run: |
+          if python -m clipper --check-youtube; then
+            echo "### YouTube access: OK" >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### YouTube access: BLOCKED from this runner"
+              echo ""
+              echo "A public test video gets no stream either, so YouTube is blocking this"
+              echo "machine's IP (datacenter address) — not your link."
+              echo ""
+              echo "- Set the \`YT_PROXY\` secret to a residential proxy, **or**"
+              echo "- pass a direct video link (e.g. Dropbox \`?dl=1\`), **or** run it where the IP is residential."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::YouTube is not serving this runner — YouTube links will fail. Set YT_PROXY or use a direct file link."
+          fi
+
       - name: Cut clips
         env:
           CLIP_URLS: ${{ inputs.urls }}
