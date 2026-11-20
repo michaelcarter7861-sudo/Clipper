@@ -69,6 +69,9 @@ INFO = {
 
 def make_settings(**kwargs) -> Settings:
     kwargs.setdefault("urls", [URL])
+    # Tests must never reach the network: the public-instance fallback is opt-in here.
+    kwargs.setdefault("upstream", False)
+    kwargs.setdefault("browser", "")
     return Settings(**kwargs)
 
 
