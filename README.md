@@ -287,6 +287,25 @@ Poori list: `python -m clipper --help`
 | Actions minutes khatam | Private repo par minutes count hote hain; public repo par free. Ek 10-min video ≈ 8–15 min runner time |
 | Clip lambai ajeeb | `min_duration` / `max_duration` set karein; clip boundaries word-timings par snap hoti hain |
 
+### Diagnose a link (andaza nahi, pukhta test)
+
+Actions tab → **Clipper · diagnose a link** → *Run workflow* → link paste karein. Ye workflow
+teen runner networks (Ubuntu, Windows, macOS) par yt-dlp se poochta hai ke YouTube kya deta hai —
+cookies ke sath aur bina. Natija run page ke summary mein aur `diagnostics-<os>` artifact mein
+milta hai.
+
+Aik dafa ka naap (is repo par, aap ke `YT_COOKIES` ke sath):
+
+| Runner | IP | Cookies ke sath | Bina cookies |
+|---|---|---|---|
+| Ubuntu | 130.131.238.22 | sirf storyboards | bot-check |
+| Windows | 20.80.78.224 | sirf storyboards | bot-check |
+| macOS | 13.105.117.159 | sirf storyboards | bot-check |
+
+Yani GitHub-hosted runners par **har OS aur har IP** par wohi jawab aata hai: cookies se session
+qabool hota hai magar stream nahi milta, aur bina cookies bot-check. Ye **code se hal nahi hota** —
+runner ka IP hi masla hai.
+
 ### Runner ka IP block ho to (GitHub Actions ka sab se bara masla)
 
 GitHub runners ke IP **datacenter** ke hote hain, aur YouTube unhein aksar sirf thumbnails deta hai.

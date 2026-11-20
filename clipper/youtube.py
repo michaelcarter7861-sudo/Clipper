@@ -699,10 +699,10 @@ def _friendly_error(
     )
     if images_only:
         return (
-            "YouTube answered with storyboard images only — no video/audio stream. That is what "
-            "a missing JS runtime, a throttled IP or a stale cookie session looks like. "
-            f"Players tried: {tried}. {runtime_hint} Fix: set YT_PROXY to a residential proxy, "
-            "or export YT_COOKIES again from a fresh browser session."
+            "YouTube answered with storyboard images only — no video/audio stream. GitHub-hosted "
+            "runners hit this on their datacenter IPs even with valid cookies (measured on Ubuntu, "
+            f"Windows and macOS). Players tried: {tried}. {runtime_hint} Fixes: set YT_PROXY to a "
+            "residential proxy, or give a direct video file/link instead of a YouTube URL."
         )
     if _is_retryable(lowered):
         if _is_format_error(lowered):

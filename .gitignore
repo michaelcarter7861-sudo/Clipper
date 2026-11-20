@@ -29,3 +29,6 @@ htmlcov/
 # tooling
 node_modules/
 .DS_Store
+
+# local diagnose reports (the workflow keeps them as artifacts)
+diagnostics/

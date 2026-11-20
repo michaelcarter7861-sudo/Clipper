@@ -435,7 +435,7 @@ def test_friendly_error_explains_storyboard_only_answers():
 
     assert "storyboard images only" in message
     assert "client android" in message
-    assert "YT_PROXY" in message and "YT_COOKIES" in message
+    assert "YT_PROXY" in message and "direct video file" in message
 
 
 def test_list_formats_explains_storyboard_only_answers(fake_ytdlp):
