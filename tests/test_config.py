@@ -81,3 +81,37 @@ def test_overrides_win_over_env(monkeypatch):
 @pytest.mark.parametrize("raw", ["", "   ", None])
 def test_empty_urls(raw):
     assert parse_urls(raw) == []
+
+
+def test_talking_mode_cuts_harder_and_punches_on_cuts():
+    settings = settings_from_env(editing="talking")
+    assert settings.tighten is True
+    assert settings.max_pause == 0.30
+    assert settings.pre_roll == 0.05
+    assert settings.post_roll == 0.12
+    assert settings.remove_fillers is True
+    assert settings.retakes is True
+    assert settings.punch_in == 1.10
+    assert settings.punch_alternate is True
+
+
+def test_talking_mode_leaves_explicit_knobs_alone():
+    settings = settings_from_env(editing="talking", max_pause=0.8, punch_in=1.0)
+    assert settings.max_pause == 0.8
+    assert settings.punch_in == 1.0
+    assert settings.punch_alternate is True
+
+
+def test_chunk_span_and_signals_are_bounded():
+    assert settings_from_env(chunk_span=5).chunk_span == 120.0
+    assert settings_from_env(chunk_span=99999).chunk_span == 3600.0
+    assert settings_from_env().chunk_span == 720.0
+    assert settings_from_env(chat_min=0).chat_min == 2
+
+
+def test_audio_only_and_chat_are_off_unless_asked():
+    settings = settings_from_env()
+    assert settings.audio_only is False
+    assert settings.chat is None
+    assert settings.chat_fetch is True
+    assert settings_from_env(audio_only=True).audio_only is True

@@ -213,6 +213,14 @@ def look_filters(settings: Settings) -> str:
     return presets.get(settings.look, "")
 
 
+def _zoom_step(punch: float) -> str:
+    """Scale up then crop back to the original size — a punch-in that keeps the size."""
+    return (
+        f"scale=w='ceil(iw*{punch:.3f}/2)*2':h='ceil(ih*{punch:.3f}/2)*2':flags=bicubic,"
+        f"crop=w='trunc(iw/{punch:.3f}/2)*2':h='trunc(ih/{punch:.3f}/2)*2',setsar=1"
+    )
+
+
 def _trim_graph(
     settings: Settings, edit: EditPlan, with_audio: bool
 ) -> tuple[str, str, str]:
@@ -221,10 +229,18 @@ def _trim_graph(
     video_labels: list[str] = []
     audio_labels: list[str] = []
 
+    # Talking-head mode: punch in on every other cut, so the frame changes with the cut.
+    alternate = (
+        bool(getattr(settings, "punch_alternate", False))
+        and len(edit.keeps) > 1
+        and settings.punch_in > 1.001
+    )
+
     for index, keep in enumerate(edit.keeps):
+        zoom = f",{_zoom_step(settings.punch_in)}" if alternate and index % 2 else ""
         parts.append(
             f"[0:v]trim=start={keep.start:.3f}:end={keep.end:.3f},"
-            f"setpts=PTS-STARTPTS[v{index}]"
+            f"setpts=PTS-STARTPTS{zoom}[v{index}]"
         )
         video_labels.append(f"[v{index}]")
         if with_audio:
@@ -273,7 +289,12 @@ def build_filter_complex(
         video += f",setpts=PTS/{edit.speed:.4f}"
     video += f",fps={settings.fps}"
 
-    if settings.punch_in > 1.001:
+    alternate_done = (
+        bool(getattr(settings, "punch_alternate", False))
+        and edit is not None
+        and len(edit.keeps) > 1
+    )
+    if settings.punch_in > 1.001 and not alternate_done:
         punch = settings.punch_in
         video += (
             f",scale=w='ceil(iw*{punch:.3f}/2)*2':h='ceil(ih*{punch:.3f}/2)*2':flags=bicubic"

@@ -331,3 +331,44 @@ def test_render_with_jump_cuts_shortens_the_clip(tmp_path: Path):
             capture_output=True, text=True,
         ).stdout.strip())
         assert abs(measured - result.output_duration) < 1.2
+
+
+def test_alternate_punch_zooms_every_other_keep_only():
+    from clipper.edit import EditPlan, Keep
+
+    settings = Settings(punch_in=1.10, punch_alternate=True)
+    plan = EditPlan(keeps=[Keep(0.0, 1.0), Keep(2.0, 3.0), Keep(4.0, 5.0)], source_duration=5.0)
+    graph = build_filter_complex(settings, duration=3.0, ass_filter=None, edit=plan)
+    # One zoom step (the odd keep); the global punch must not also fire, or the whole
+    # clip would be zoomed and the alternation would be pointless.
+    assert graph.count("ceil(iw*1.100") == 1
+
+
+def test_talking_mode_graph_is_valid_ffmpeg(tmp_path: Path):
+    ffmpeg = ffmpeg_path()
+    if not ffmpeg:
+        pytest.skip("ffmpeg not available")
+
+    source = make_source(tmp_path / "source.mp4", ffmpeg, seconds=6)
+    transcript = Transcript(
+        segments=[
+            Segment(0.0, 1.6, "one two three", [Word(0.0, 0.5, "one"), Word(0.5, 1.0, "two"), Word(1.0, 1.6, "three")]),
+            Segment(4.0, 5.6, "four five six", [Word(4.0, 4.5, "four"), Word(4.5, 5.0, "five"), Word(5.0, 5.6, "six")]),
+        ],
+        duration=6.0,
+    )
+    settings = Settings(
+        ffmpeg=ffmpeg,
+        ffprobe=shutil.which("ffprobe") or "",
+        editing="talking",
+        width=540,
+        height=960,
+    )
+    out = tmp_path / "talking.mp4"
+    result = render_clip(
+        source, out, ClipPlan(0.0, 5.8, "hook", "talking head", index=1),
+        transcript, settings, ass_dir=tmp_path,
+    )
+    assert result.path.exists() and result.path.stat().st_size > 10_000
+    assert result.edit is not None and len(result.edit.keeps) >= 2
+    assert result.edit.to_dict()["keeps"]

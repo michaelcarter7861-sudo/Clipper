@@ -14,6 +14,8 @@ from pathlib import Path
 
 from . import __version__
 from .bridge import Bridge, start_bridge
+from .chat import ChatEvent, bursts, load_chat
+from .chat import summarise as summarise_chat
 from .claude_code import is_available as claude_available
 from .claude_code import run_director
 from .config import Settings
@@ -25,7 +27,15 @@ from .signals import LoudEvent, loud_moments
 from .signals import summarise as summarise_signals
 from .subtitles import Transcript, parse_vtt
 from .transcribe import transcribe, whisper_available
-from .youtube import VideoSource, download, slugify
+from .youtube import (
+    VideoSource,
+    download,
+    download_audio,
+    download_chat,
+    download_section,
+    local_media_path,
+    slugify,
+)
 
 log = get_logger()
 
@@ -243,6 +253,7 @@ def choose_clips(
     backend: Backend,
     verbatim_dir: Path,
     loud: list[LoudEvent] | None = None,
+    chat: list[ChatEvent] | None = None,
 ) -> tuple[list[ClipPlan], str, str]:
     """Return ``(clips, method, notes)``."""
     if backend.kind == "claude-code" and backend.base_url:
@@ -271,6 +282,7 @@ def choose_clips(
             llm=llm,
             title=source.title,
             loud=loud,
+            chat=chat,
         )
         if clips:
             return clips, method, summarise_provider(backend.provider)
@@ -528,6 +540,97 @@ def resolve_ffmpeg(settings: Settings) -> str:
     return resolve_binary(settings.ffmpeg)
 
 
+def _chat_signals(url: str, work_dir: Path, settings: Settings) -> list[ChatEvent]:
+    """Chat bursts for this video, or an empty list. A chat file never fails a run."""
+    try:
+        path = download_chat(url, work_dir, settings)
+        if path is None:
+            return []
+        messages = load_chat(path)
+        if not messages:
+            log.info("chat replay had no readable messages")
+            return []
+        events = bursts(
+            messages,
+            bucket=settings.chat_bucket,
+            min_messages=settings.chat_min,
+        )
+        log.info("chat replay: %d message(s) → %d burst(s)", len(messages), len(events))
+        return events
+    except Exception as exc:  # noqa: BLE001 - signals are a bonus
+        log.debug("chat signals skipped: %s", exc)
+        return []
+
+
+def _shift_plan(plan: ClipPlan, offset: float) -> ClipPlan:
+    """Re-express a clip plan against a file that starts at ``offset``."""
+    from dataclasses import replace
+
+    return replace(plan, start=0.0, end=max(0.4, plan.end - offset))
+
+
+def _shift_transcript(transcript: Transcript, offset: float, end: float) -> Transcript:
+    """Words of ``[offset, end)`` re-timed so the section file starts at zero."""
+    from .subtitles import Word, _group_words
+
+    words = [
+        Word(start=max(0.0, word.start - offset), end=max(0.05, word.end - offset), text=word.text)
+        for word in transcript.words_between(offset, end)
+    ]
+    words.sort(key=lambda word: word.start)
+    return Transcript(
+        segments=_group_words(words),
+        language=transcript.language,
+        source=transcript.source,
+        duration=max(0.0, end - offset),
+    )
+
+
+def _media_for_clip(
+    plan: ClipPlan,
+    source: VideoSource,
+    transcript: Transcript,
+    base: Path,
+    work_dir: Path,
+    settings: Settings,
+) -> tuple[Path, ClipPlan, Transcript, Path | None]:
+    """Which file to render this clip from, and the plan/transcript that match it.
+
+    Normally that is the one downloaded video. In audio-only mode it is a freshly
+    downloaded section of exactly this clip, re-timed to start at zero — which is how a
+    2-hour stream becomes three small downloads instead of one huge one.
+    """
+    if not source.audio_only or source.path is None:
+        return source.path, plan, transcript, None
+
+    try:
+        section = download_section(source.url, plan.start, plan.end, work_dir, settings)
+    except Exception as exc:  # noqa: BLE001 - fall back to the whole video once
+        warning(f"clip {plan.index}: section download failed ({exc}); downloading the video")
+        full = download(source.url, base, settings)
+        source.audio_only = False
+        source.path = full.path
+        source.subtitle_files = full.subtitle_files or source.subtitle_files
+        if source.path is None:
+            raise PipelineError("the fallback download produced no video") from exc
+        return source.path, plan, transcript, None
+
+    if section.path is None:
+        raise PipelineError("the section download produced no file")
+    log.info(
+        "clip %d: rendering from a %.0fs section (%.1f MB) instead of the whole video",
+        plan.index,
+        section.duration,
+        section.path.stat().st_size / 1e6,
+    )
+    return (
+        section.path,
+        _shift_plan(plan, plan.start),
+        _shift_transcript(transcript, plan.start, plan.end),
+        section.path,
+    )
+
+
 def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
     with step(f"Video: {url}"):
         out_dir = settings.out_dir
@@ -535,8 +638,12 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
         base = staging / "ingest" if staging else out_dir / "_ingest"
         base.mkdir(parents=True, exist_ok=True)
 
-        with step("Downloading"):
-            source = download(url, base, settings)
+        if settings.audio_only and local_media_path(url) is None:
+            with step("Downloading the audio only"):
+                source = download_audio(url, base, settings)
+        else:
+            with step("Downloading"):
+                source = download(url, base, settings)
         log.info("downloaded: %s (%.1fs)", source.title, source.duration)
 
         clip_dir = out_dir / source.slug
@@ -558,8 +665,15 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
             log.info("audio signals: %s", summarise_signals(loud))
             _write_json(clip_dir / "signals.json", [event.to_dict() for event in loud])
 
+        chat: list[ChatEvent] = []
+        with step("Reading the chat replay"):
+            chat = _chat_signals(url, work_dir, settings)
+        if chat:
+            _write_json(clip_dir / "chat.json", [event.to_dict() for event in chat])
+            log.info("chat signals: %s", summarise_chat(chat))
+
         clips, method, notes = choose_clips(
-            transcript, source, settings, backend, work_dir, loud=loud
+            transcript, source, settings, backend, work_dir, loud=loud, chat=chat
         )
         if not clips:
             raise PipelineError("no clips passed validation")
@@ -575,15 +689,20 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
             name = _clip_filename(plan)
             target = clip_dir / name
             try:
+                media, render_plan, render_transcript, section = _media_for_clip(
+                    plan, source, transcript, base, work_dir, settings
+                )
                 rendered: RenderResult = render_clip(
-                    source.path,
+                    media,
                     target,
-                    plan,
-                    transcript,
+                    render_plan,
+                    render_transcript,
                     settings,
                     ass_dir=clip_dir,
                     dry_run=settings.dry_run,
                 )
+                if section is not None and not settings.keep_source:
+                    section.unlink(missing_ok=True)
                 if not settings.dry_run:
                     (clip_dir / f"{target.stem}.txt").write_text(
                         _post_text(

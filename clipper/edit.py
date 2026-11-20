@@ -34,6 +34,9 @@ FILLERS = {
 }
 
 MIN_KEEP = 0.30  # never emit a fragment shorter than this
+RETAKE_GRAM = 5  # words that must repeat before it counts as a second take
+RETAKE_GAP = 45.0  # seconds between the two takes of the same line
+RETAKE_FILLER = 12.0  # a false start is short: the retake follows within this
 MAX_KEEPS = 60  # degenerate transcripts fall back to one keep
 
 
@@ -96,6 +99,45 @@ def _clean_word(text: str) -> str:
     return text.strip().strip(".,!?;:\"'()[]").lower()
 
 
+def _drop_retakes(words: list[Word]) -> tuple[list[Word], int]:
+    """Remove a false start when the speaker says the same line again, better.
+
+    Talking heads restart constantly ("so today I want to talk about— so today I want to
+    talk about X"). The earlier take is dead weight; keep the later one. Returns the words
+    to keep and how many takes were dropped.
+    """
+    if len(words) < RETAKE_GRAM * 2:
+        return words, 0
+
+    grams: dict[tuple[str, ...], int] = {}
+    drop: set[int] = set()
+    protected: set[int] = set()
+    removed = 0
+    for index in range(len(words) - RETAKE_GRAM + 1):
+        if index in protected:
+            # Already part of a take that survived; do not cut it again.
+            continue
+        key = tuple(_clean_word(word.text) for word in words[index : index + RETAKE_GRAM])
+        if not all(key):
+            continue
+        first = grams.get(key)
+        if first is None:
+            grams[key] = index
+            continue
+        earlier, later = words[first], words[index]
+        gap = later.start - earlier.start
+        # Same line, said again soon after, without a long detour in between.
+        if 0.0 < gap <= RETAKE_GAP and later.start - words[first + RETAKE_GRAM - 1].end <= RETAKE_FILLER:
+            drop.update(range(first, index))
+            protected.update(range(index, index + RETAKE_GRAM))
+            removed += 1
+        grams[key] = index
+
+    if not drop:
+        return words, 0
+    return [word for position, word in enumerate(words) if position not in drop], removed
+
+
 def build_edit_plan(
     transcript: Transcript, start: float, end: float, settings: Settings
 ) -> EditPlan:
@@ -116,6 +158,12 @@ def build_edit_plan(
         Word(start=max(0.0, w.start - start), end=min(duration, w.end - start), text=w.text)
         for w in words
     ]
+
+    retakes = 0
+    if settings.retakes:
+        relative, retakes = _drop_retakes(relative)
+        if retakes:
+            log.info("dropped %d false start(s) where the line was said again", retakes)
 
     max_pause = max(0.15, float(settings.max_pause))
     pre_roll = max(0.0, float(settings.pre_roll))
@@ -175,13 +223,16 @@ def build_edit_plan(
         )
         return whole
 
+    notes = [f"{len(keeps) - 1} cut(s), {removed:.1f}s of silence removed"]
+    if retakes:
+        notes.append(f"{retakes} retake(s) removed")
     plan = EditPlan(
         keeps=keeps,
         speed=speed,
         removed=removed,
         fillers_removed=fillers,
         source_duration=duration,
-        notes=[f"{len(keeps) - 1} cut(s), {removed:.1f}s of silence removed"],
+        notes=notes,
     )
     log.debug(
         "edit plan: %d keeps, %.1fs → %.1fs, speed %.2f",
@@ -227,6 +278,8 @@ def summarise(plan: EditPlan, settings: Settings) -> str:
         bits.append(f"-{plan.removed:.1f}s dead air")
     if plan.fillers_removed:
         bits.append(f"{plan.fillers_removed} filler word(s) cut")
+    if any("retake" in note for note in plan.notes):
+        bits.append(next(note for note in plan.notes if "retake" in note))
     if abs(plan.speed - 1.0) > 1e-6:
         bits.append(f"{plan.speed:.2f}× speed")
     if settings.punch_in and abs(settings.punch_in - 1.0) > 1e-6:

@@ -77,13 +77,15 @@ preview, hook, score aur `download mp4` link wahan milega.
 | `clips` | `3` | per video kitne clips |
 | `min_duration` / `max_duration` | `18` / `60` | clip ki lambai (seconds) |
 | `caption_style` | `karaoke` | `karaoke` (word highlight) · `plain` · `none` |
-| `editing` | `full` | `full` (jump cuts + grade + punch-in + progress bar) · `cuts` (sirf jump cuts) · `off` (raw) |
+| `editing` | `full` | `full` (jump cuts + grade + punch-in + progress bar) · `cuts` (sirf jump cuts) · **`talking`** (talking head: sakht pause/filler/retake cuts + alternate punch-ins) · `off` (raw) |
 | `watermark` | *khali* | corner mein chhota handle/text, e.g. `@yourchannel` |
 | `max_height` | `1080` | sab se oonchi source resolution jo download ho (720 se tez run) |
 | `fit` | `crop` | `crop` (center crop) · `blur` (blurred background) · `pad` (black bars) · **`facecam`** (streamer ka cam upar, gameplay neeche) · `auto` (facecam mile to wohi, warna crop) |
 | `language` | `auto` | `en`, `hi`, `ur`, … subtitles/whisper ke liye |
 | `whisper_model` | `base` | jab video par subtitles na hon |
 | `llm_backend` | `auto` | `auto` · `claude-code` · `api` · `heuristic` |
+| `audio_only` | `false` | pehle sirf audio utaar kar transcribe/sunlo, phir sirf wohi hisse download karo jo clips bane — lambi stream par bohat tez (video section ka kam bhi ek section, replace bhi ek section) |
+| `chat_heat` | `true` | live-chat replay ho to us ke bursts ko signal banao |
 | `publish_release` | `false` | clips ko GitHub Release mein daal do |
 
 **Formats ka masla khud hal ho jata hai:** har run pehle YouTube se poochta hai ke kaunse
@@ -129,8 +131,42 @@ hai: `1 jump cut(s), -4.5s dead air, 1.08× speed, punchy grade, progress bar`.
 ```bash
 python -m clipper --url "https://youtu.be/ID" --editing full --watermark "@yourchannel"
 python -m clipper --url "https://youtu.be/ID" --editing cuts      # sirf pacing
+python -m clipper --url "https://youtu.be/ID" --editing talking   # podcast / talking head
 python -m clipper --url "https://youtu.be/ID" --editing off       # as-shot
 ```
+
+### `editing: talking` — podcast / talking head
+
+Baat karne wale video ka 30-40% hissa khamoshi, "um", aur wohi line dobara bolna hota hai:
+
+| Kya | Default `full` | `talking` |
+|---|---|---|
+| Pause cut | 0.45s se lambi | **0.30s** se lambi (pre/post roll 0.05/0.12s) |
+| Fillers (`um`, `matlab`, `yaani`) | band | **on** |
+| **Retake** (same line dobara, behtar) | — | pehla adhoora take **cut**, doosra rakha jata hai |
+| Punch-in | pooray clip par 4% | **har doosre cut par 10%** — cut ke sath frame badalta hai |
+| Grade | clean | clean |
+
+Log aur report mein saaf likha aata hai, e.g. `2 jump cut(s), -6.4s dead air, 1 retake(s) removed,
+110% punch-in, clean grade, progress bar`. Retake detection sirf tab chalti hai jab wohi 5 lafz
+45s ke andar dobara bole jayein — warna kuch nahi kat-ta (`--no-retakes` se band).
+
+### Chat heat — `<<CHAT x14>>`
+
+Live stream ki chat replay ek muft, insaani signal hai: log us waqt type karte hain jab kuch
+*ho* raha ho. `chat_heat: true` par Clipper yt-dlp se `live_chat` replay maangta hai (jo video
+mein ho), 5-second buckets mein ginti karta hai, aur transcript ki un lines par `<<CHAT x14>>`
+marker lagata hai jo us video ki normal chatter se dugni hain. Markers sirf evidence hain —
+LLM unhein dekh kar faisla karta hai, output mein woh kabhi nahi aate. `out/<slug>/chat.json`
+mein bursts mehfooz rehte hain.
+
+### Audio-only analysis — `audio_only: true`
+
+Lambi stream par 2 ghante ka video download karna sab se mehnga kaam hai. `audio_only` par
+Clipper pehle sirf audio utaarta hai (m4a), usi se transcript + loudness + chat signals banata
+hai, clips choose karta hai, aur **phir har clip ka sirf apna hissa** (`download_ranges`, keyframe
+par cut) download kar ke render karta hai. Agar section download kisi wajah se fail ho jaye to
+ek dafa poora video utaar kar wohi clip bana di jati hai — run kabhi khaali nahi jaata.
 
 ### Editing aur copyright — seedhi baat
 
@@ -255,7 +291,13 @@ out/
 --cookies cookies.txt     YouTube "not a bot" ke liye
 --browser obscura         yt-dlp refuse kare to asli browser ('' = band)
 --browser-stealth         browser ko fingerprint spoofing ke sath chalao (default off)
---editing full|cuts|off   jump cuts + grade + progress bar (default full)
+--editing full|cuts|talking|off   jump cuts + grade + progress bar (default full)
+--retakes / --no-retakes  talking head: pehla adhoora take cut karo
+--punch-alternate         har doosre cut par punch-in
+--audio-only              pehle audio, phir sirf chosen windows download
+--chat chat.json          live_chat replay file (khud dein)
+--no-chat-fetch           chat replay download na karo
+--chunk-span 720          LLM ko ek prompt mein kitne second transcript (default 12 min)
 --max-pause 0.45          is se lambi khamoshi cut ho jati hai
 --remove-fillers          um/uh/matlab/yaani bhi cut karo
 --speed 1.08              halka fast-forward

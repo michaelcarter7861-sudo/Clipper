@@ -27,6 +27,9 @@ video.
 - Some lines carry `<<LOUD(+12dB)>>`: the audio there jumped above this video's own \
 normal. It is evidence, not a decision — a loud line with nothing interesting said is \
 not a clip, and a great line with no marker can be. Never mention the marker in output.
+- Some lines carry `<<CHAT x14>>`: that many people typed in the chat in the same few
+  seconds — the audience itself marking a moment. Trust it more than loudness, still an
+  input and not a decision. Never mention it in output.
 - Reply with JSON only: no markdown, no code fences, no commentary.
 """
 
