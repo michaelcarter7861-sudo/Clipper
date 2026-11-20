@@ -588,3 +588,46 @@ def test_a_page_link_is_not_treated_as_a_file(tmp_path: Path):
     from clipper.youtube import _direct_file_fallback
 
     assert _direct_file_fallback("https://youtu.be/abc123def45", tmp_path, make_settings()) is None
+
+
+def test_slug_survives_a_signed_url_as_title(tmp_path: Path):
+    from clipper.youtube import VideoSource
+
+    source = VideoSource(
+        url="u",
+        video_id="1009d913-e177-4eec-973d-0f22513ba83d?sp=r&sig=deadbeef",
+        title="https://blob.example/x.mp4?sp=r&sig=deadbeef&jwt=eyJhbGciOi",
+        duration=1.0,
+    )
+    slug = source.slug
+    assert len(slug) <= 80
+    assert "?" not in slug and "/" not in slug and "&" not in slug
+
+
+def test_a_fake_download_without_a_file_falls_through_to_the_rescue(tmp_path: Path, monkeypatch):
+    """yt-dlp can claim success while writing nothing (a redirect served as a page)."""
+    from clipper import youtube as youtube_module
+
+    monkeypatch.setattr(youtube_module, "_rescue", lambda url, work_dir, settings, probed=None: "rescued")
+    fake_info = {"id": "abc", "title": "t", "duration": 5.0, "formats": []}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=True):
+            return fake_info
+
+    monkeypatch.setitem(__import__("sys").modules, "yt_dlp", type("M", (), {"YoutubeDL": FakeYDL}))
+    monkeypatch.setattr(youtube_module, "_format_rows", lambda info: [])
+    monkeypatch.setattr(youtube_module, "_live_state", lambda info: "")
+    monkeypatch.setattr(youtube_module, "probe_formats", lambda url, work_dir, settings: None)
+    monkeypatch.setattr(youtube_module, "_write_formats_report", lambda *a, **k: None)
+
+    assert youtube_module.download(URL, tmp_path, make_settings()) == "rescued"

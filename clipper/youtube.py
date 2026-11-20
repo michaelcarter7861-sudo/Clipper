@@ -49,8 +49,12 @@ class VideoSource:
 
     @property
     def slug(self) -> str:
-        base = slugify(self.title) or "video"
-        return f"{base[:60]}-{self.video_id}" if self.video_id else base[:60]
+        base = slugify(self.title)[:60].strip("-") or "video"
+        # A "title" can be a signed URL when a redirect is mistaken for a page; a video id can
+        # be one too. Neither may become a directory name, and neither may be long.
+        tag = slugify(self.video_id)[:24].strip("-")
+        slug = f"{base}-{tag}" if tag else base
+        return slug[:80].strip("-") or "video"
 
     def to_dict(self) -> dict:
         return {
@@ -627,16 +631,14 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             continue
         log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
+    if info is not None and _downloaded_path(info, work_dir) is None:
+        log.warning("yt-dlp said it downloaded something but wrote no file — trying other routes")
+        info = None
+
     if info is None:
-        direct = _direct_file_fallback(url, work_dir, settings)
-        if direct is not None:
-            return direct
-        attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
-        if attempted_browser is not None:
-            return attempted_browser
-        borrowed = _upstream_fallback(url, work_dir, settings)
-        if borrowed is not None:
-            return borrowed
+        rescued = _rescue(url, work_dir, settings, probed=probed)
+        if rescued is not None:
+            return rescued
         _write_formats_report(settings.out_dir, url, probed, errors, live_state)
         message = _friendly_error(
             last_error,
@@ -709,6 +711,17 @@ def _direct_file_fallback(url: str, work_dir: Path, settings: Settings) -> Video
         height=height,
         info={"id": slugify(title), "title": title, "direct": True},
     )
+
+
+def _rescue(url: str, work_dir: Path, settings: Settings, *, probed: dict | None = None) -> VideoSource | None:
+    """The last three routes, cheapest first: a plain file, the browser, a public instance."""
+    direct = _direct_file_fallback(url, work_dir, settings)
+    if direct is not None:
+        return direct
+    attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
+    if attempted_browser is not None:
+        return attempted_browser
+    return _upstream_fallback(url, work_dir, settings)
 
 
 def _upstream_fallback(url: str, work_dir: Path, settings: Settings) -> VideoSource | None:
@@ -939,10 +952,13 @@ def _source_from_info(
         [p for p in work_dir.glob("source*.*") if p.suffix.lower() in {".vtt", ".srt"}]
     )
 
+    title = str(info.get("title") or "untitled")
+    if "://" in title or "sp=sr" in title or "&sig=" in title:
+        title = _title_from_url(url)
     source = VideoSource(
         url=url,
-        video_id=str(info.get("id") or video_id_from_url(url)),
-        title=str(info.get("title") or "untitled"),
+        video_id=str(info.get("id") or video_id_from_url(url) or slugify(title))[:64],
+        title=title,
         duration=float(info.get("duration") or 0.0),
         uploader=str(info.get("uploader") or info.get("channel") or ""),
         path=path,
@@ -956,6 +972,13 @@ def _source_from_info(
     )
     (work_dir / "info.json").write_text(json.dumps(source.to_dict(), indent=2), encoding="utf-8")
     return source
+
+
+def _title_from_url(url: str) -> str:
+    """``…/my-clip.mp4?token=…`` → ``my-clip`` (never the token)."""
+    path = urllib.parse.urlsplit(url).path
+    stem = Path(urllib.parse.unquote(path)).stem
+    return stem or "video"
 
 
 def _downloaded_path(info: dict, work_dir: Path) -> Path | None:
