@@ -21,6 +21,8 @@ from .llm import ChatLLM, Provider, resolve_provider, summarise_provider
 from .log import get_logger, notice, step, summary, warning
 from .moments import ClipPlan, heuristic_clips, plan_clips
 from .render import RenderResult, doctor, render_clip
+from .signals import LoudEvent, loud_moments
+from .signals import summarise as summarise_signals
 from .subtitles import Transcript, parse_vtt
 from .transcribe import transcribe, whisper_available
 from .youtube import VideoSource, download, slugify
@@ -240,6 +242,7 @@ def choose_clips(
     settings: Settings,
     backend: Backend,
     verbatim_dir: Path,
+    loud: list[LoudEvent] | None = None,
 ) -> tuple[list[ClipPlan], str, str]:
     """Return ``(clips, method, notes)``."""
     if backend.kind == "claude-code" and backend.base_url:
@@ -267,6 +270,7 @@ def choose_clips(
             settings,
             llm=llm,
             title=source.title,
+            loud=loud,
         )
         if clips:
             return clips, method, summarise_provider(backend.provider)
@@ -543,7 +547,20 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
         shutil.copyfile(work_dir / "transcript.json", clip_dir / "transcript.json")
         _write_json(clip_dir / "info.json", source.to_dict())
 
-        clips, method, notes = choose_clips(transcript, source, settings, backend, work_dir)
+        loud: list[LoudEvent] = []
+        if settings.signals and source.path is not None:
+            with step("Listening for loud moments"):
+                loud = loud_moments(
+                    source.path,
+                    settings,
+                    end=source.duration or transcript.duration or None,
+                )
+            log.info("audio signals: %s", summarise_signals(loud))
+            _write_json(clip_dir / "signals.json", [event.to_dict() for event in loud])
+
+        clips, method, notes = choose_clips(
+            transcript, source, settings, backend, work_dir, loud=loud
+        )
         if not clips:
             raise PipelineError("no clips passed validation")
 

@@ -24,6 +24,9 @@ video.
 - Do not return overlapping clips. Do not invent timestamps outside the transcript.
 - Every clip also gets a **post**: a caption (1-2 short lines + a question that makes
   people comment, no links) and 4-6 hashtags (the niche, the platform, the topic).
+- Some lines carry `<<LOUD(+12dB)>>`: the audio there jumped above this video's own \
+normal. It is evidence, not a decision — a loud line with nothing interesting said is \
+not a clip, and a great line with no marker can be. Never mention the marker in output.
 - Reply with JSON only: no markdown, no code fences, no commentary.
 """
 

@@ -12,6 +12,7 @@ from .config import Settings
 from .llm import ChatLLM, LLMError
 from .log import get_logger, step
 from .prompts import REPAIR, SYSTEM, build_user_prompt
+from .signals import LoudEvent, annotate_lines
 from .subtitles import Segment, Transcript, render_for_prompt
 
 log = get_logger()
@@ -271,6 +272,7 @@ def plan_with_llm(
     llm: ChatLLM,
     *,
     title: str = "",
+    loud: list[LoudEvent] | None = None,
 ) -> list[ClipPlan]:
     """Chunked map over the transcript, then rank the union of candidates."""
     chunks = chunk_segments(transcript.segments)
@@ -281,9 +283,7 @@ def plan_with_llm(
     candidates: list[ClipPlan] = []
 
     for number, chunk in enumerate(chunks, start=1):
-        block = "\n".join(
-            f"[{segment.start:6.1f} - {segment.end:6.1f}] {segment.text}" for segment in chunk
-        )
+        block = "\n".join(annotate_lines(chunk, loud or []))
         user = build_user_prompt(
             title=title,
             duration=duration,
@@ -435,11 +435,12 @@ def plan_clips(
     *,
     llm: ChatLLM | None = None,
     title: str = "",
+    loud: list[LoudEvent] | None = None,
 ) -> tuple[list[ClipPlan], str]:
     """Return ``(clips, method)`` using the best available strategy."""
     if llm is not None:
         with step(f"Finding viral moments with {llm.provider.name}"):
-            plans = plan_with_llm(transcript, duration, settings, llm, title=title)
+            plans = plan_with_llm(transcript, duration, settings, llm, title=title, loud=loud)
         if plans:
             return plans, f"llm:{llm.provider.name}"
         log.warning("LLM returned nothing usable — falling back to the heuristic scorer")

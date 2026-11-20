@@ -7,6 +7,7 @@ Everything the README keeps short, in one place.
 - [FreeLLMAPI router (Tashfeen Ahmed)](#freellmapi-router-tashfeen-ahmed)
 - [Claude Code in CI](#claude-code-in-ci)
 - [YouTube cookies (as the easiest possible way)](#youtube-cookies)
+- [The browser fallback — and what it can't do](#the-browser-fallback)
 - [Editing knobs](#editing-knobs)
 - [Whisper (videos without subtitles)](#whisper-videos-without-subtitles)
 - [Fonts and caption styling](#fonts-and-caption-styling)
@@ -40,7 +41,8 @@ Environment-only knobs (set them in the workflow `env:` block if you want to cha
 `CLIP_COUNT`, `CLIP_MIN_DURATION`, `CLIP_MAX_DURATION`, `CAPTION_STYLE`, `CAPTION_HIGHLIGHT`,
 `CAPTION_FONT`, `CLIP_FIT`, `CLIP_FPS`, `CLIP_CRF`, `CLIP_PRESET`, `WHISPER_MODEL`,
 `CLIP_LANGUAGE`, `LLM_BACKEND`, `LLM_TEMPERATURE`, `YTDLP_EXTRA_ARGS`, `CLIP_PROXY`,
-`CLIP_MAX_VIDEO_HEIGHT`, `CLIP_VERBOSE`.
+`CLIP_MAX_VIDEO_HEIGHT`, `CLIP_VERBOSE`, `CLIP_BROWSER`, `CLIP_BROWSER_STEALTH`,
+`CLIP_BROWSER_TIMEOUT`, `CLIP_SIGNALS`.
 
 ### How a link is downloaded (formats + live streams)
 
@@ -239,6 +241,26 @@ Locally: `python -m clipper --url … --cookies ./cookies.txt`.
 
 > Cookies are credentials. Never commit them (they are gitignored here), never share them in
 > chat, and revoke sessions from your Google account page if a file leaks.
+
+## The browser fallback
+
+When yt-dlp is refused, Clipper can ask [obscura](https://github.com/h4ckf0r0day/obscura) — a
+headless Rust browser — for the page and its cookies (`--browser obscura`, on by default in the
+workflow when the binary is present; `--check-youtube` prints both results). Full details and
+the raw measurement are in [docs/BROWSER.md](BROWSER.md).
+
+The short, honest version, measured on a GitHub runner with obscura 0.2.7:
+
+| Step | Result |
+|---|---|
+| browser installs and starts | yes |
+| YouTube page through the JS engine | engine aborts (SIGABRT) on `webcomponents-sd.js` — handled by a raw-page path |
+| player response from the raw page | `LOGIN_REQUIRED` — *"Sign in to confirm you're not a bot"*, 0 streams |
+| cookies the browser returns | 9 anonymous visitor cookies |
+
+So the browser **does not** make cookies unnecessary: the block is tied to the runner's IP, and
+every client we tried (yt-dlp's android/ios/tv/mweb/web, a real browser) got the same answer.
+Cookies above, or `YT_PROXY` with a residential IP, remain the working routes.
 
 ## Editing knobs
 

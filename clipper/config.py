@@ -171,6 +171,9 @@ class Settings:
     claude_timeout: int = 900
     bridge_port: int = 0  # 0 = pick a free port
 
+    # signals
+    signals: bool = True  # loudness markers for the picker (one ffmpeg pass)
+
     # browser (obscura) — used only when yt-dlp is refused
     browser: str = ""
     browser_stealth: bool = False
@@ -316,6 +319,7 @@ def settings_from_env(**overrides) -> Settings:
         "claude_model": env_str("CLAUDE_MODEL", "claude-sonnet-4-5"),
         "claude_timeout": env_int("CLAUDE_TIMEOUT", 900),
         "bridge_port": env_int("CLIP_BRIDGE_PORT", 0),
+        "signals": env_bool("CLIP_SIGNALS", True),
         "browser": env_str("CLIP_BROWSER", "") or "",
         "browser_stealth": env_bool("CLIP_BROWSER_STEALTH", False),
         "browser_timeout": env_int("CLIP_BROWSER_TIMEOUT", 90),
