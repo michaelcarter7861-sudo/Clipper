@@ -22,6 +22,8 @@ stories, quotable one-liners, emotional peaks, "nobody tells you this" advice.
 makes sense with earlier context, and anything that is only good if you can see the \
 video.
 - Do not return overlapping clips. Do not invent timestamps outside the transcript.
+- Every clip also gets a **post**: a caption (1-2 short lines + a question that makes
+  people comment, no links) and 4-6 hashtags (the niche, the platform, the topic).
 - Reply with JSON only: no markdown, no code fences, no commentary.
 """
 
@@ -43,7 +45,8 @@ TRANSCRIPT (start - end in seconds, then the spoken text):
 Reply with exactly this JSON shape:
 {{"clips": [{{"start": 123.4, "end": 171.2, "hook": "SHORT ON-SCREEN HOOK (max 60 chars)", \
 "title": "short label for this clip", "reason": "why this moment stops the scroll", \
-"score": 87}}]}}
+"score": 87, "caption": "one or two lines + a question", \
+"hashtags": ["#topic", "#niche", "#shorts"]}}]}}
 
 "score" is 0-100: how likely this clip is to hold a cold viewer. Be strict; most \
 transcript windows are a 40, only genuinely strong moments are 80+.
@@ -87,7 +90,8 @@ Write `{clips_path}` containing exactly:
 
 ```json
 {{"clips": [{{"start": 123.4, "end": 171.2, "hook": "ON-SCREEN HOOK <=60 chars", \
-"title": "short label", "reason": "why it stops the scroll", "score": 0-100}}]}}
+"title": "short label", "reason": "why it stops the scroll", "score": 0-100, \
+"caption": "one or two lines + a question", "hashtags": ["#topic", "#shorts"]}}]}}
 ```
 
 ## Constraints
@@ -96,6 +100,8 @@ Write `{clips_path}` containing exactly:
 - Sentence boundaries only. Hook must land in the first 1-2 seconds.
 - Prefer specific numbers, contrarian takes, confessions, stakes, quotable lines, \
 emotional peaks. Avoid intros, sponsor reads, filler, and anything that needs context.
+- Include `caption` (1-2 short lines + a question that invites comments, no links) and \
+4-6 `hashtags` for every clip.
 
 ## How to work
 1. Read the transcript file (it may be long — read it in pieces if needed).
@@ -109,5 +115,6 @@ video pipeline, do not write commentary outside the JSON.
 REPAIR = (
     "The previous answer was not valid JSON for this schema. "
     'Reply with JSON only: {"clips": [{"start": number, "end": number, '
-    '"hook": string, "title": string, "reason": string, "score": number}]}'
+    '"hook": string, "title": string, "reason": string, "score": number, '
+    '"caption": string, "hashtags": [string]}]}'
 )

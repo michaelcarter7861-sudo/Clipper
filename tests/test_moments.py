@@ -7,6 +7,7 @@ import pytest
 from clipper.config import Settings
 from clipper.moments import (
     ClipPlan,
+    _hashtags,
     chunk_segments,
     heuristic_clips,
     plan_clips,
@@ -231,3 +232,34 @@ def test_empty_payloads_fall_back(payload):
     clips, method = plan_clips(transcript, 120, Settings(clips=1), llm=FakeLLM(payload))
     assert clips
     assert method == "heuristic"
+
+
+def test_plans_carry_a_post_caption_and_hashtags():
+    plan = validate_plans(
+        [
+            {
+                "start": 5,
+                "end": 30,
+                "hook": "IT ACTUALLY WORKED",
+                "title": "It worked",
+                "score": 80,
+                "caption": "Nobody expected this 😳 would you try it?",
+                "hashtags": "#GTA6, gta6 #shorts",
+                "layout": "gameplay",
+            }
+        ],
+        duration=60,
+        settings=Settings(min_duration=10, max_duration=60),
+        limit=1,
+    )[0]
+    assert plan.caption.startswith("Nobody expected this")
+    assert plan.hashtags == ["#GTA6", "#shorts"]
+    assert plan.layout == "gameplay"
+    payload = plan.to_dict()
+    assert payload["caption"] and payload["hashtags"] == ["#GTA6", "#shorts"]
+
+
+def test_hashtags_are_normalised_and_deduplicated():
+    assert _hashtags("#gta6 #GTA6 shorts, , #") == ["#gta6", "#shorts"]
+    assert _hashtags(None) == []
+    assert _hashtags(["only tag"]) == ["#onlytag"]

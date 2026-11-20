@@ -293,6 +293,36 @@ def _clip_filename(plan: ClipPlan) -> str:
     return f"clip-{plan.index:02d}-{slug}.mp4"
 
 
+def _post_text(output: ClipOutput, source: VideoSource) -> str:
+    """The `.txt` that goes with a clip: what to post it as."""
+    plan = output.plan
+    lines = [f"TITLE: {plan.title or plan.hook or 'clip'}"]
+    if plan.hook and plan.hook != plan.title:
+        lines.append(f"HOOK: {plan.hook}")
+    if plan.caption:
+        lines += ["", "CAPTION:", plan.caption]
+    if plan.hashtags:
+        lines += ["", " ".join(plan.hashtags)]
+    lines += [
+        "",
+        f"SOURCE: {source.title}" + (f" — {source.url}" if source.url else ""),
+        f"FROM: {_clock(plan.start)} TO: {_clock(plan.end)}"
+        + (f" ({plan.duration:.0f}s)" if plan.duration else ""),
+    ]
+    details = [f"score {plan.score}"]
+    if plan.layout:
+        details.append(f"layout {plan.layout}")
+    if plan.reason:
+        details.append(plan.reason)
+    lines.append("NOTES: " + " · ".join(details))
+    return "\n".join(lines) + "\n"
+
+
+def _clock(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
+
+
 def _gallery_html(result: VideoResult, settings: Settings) -> str:
     source = result.source
     cards: list[str] = []
@@ -537,6 +567,20 @@ def process_url(url: str, settings: Settings, backend: Backend) -> VideoResult:
                     ass_dir=clip_dir,
                     dry_run=settings.dry_run,
                 )
+                if not settings.dry_run:
+                    (clip_dir / f"{target.stem}.txt").write_text(
+                        _post_text(
+                            ClipOutput(
+                                plan=plan,
+                                path=target,
+                                thumbnail=None,
+                                ass=None,
+                                layout=rendered.layout,
+                            ),
+                            source,
+                        ),
+                        encoding="utf-8",
+                    )
                 outputs.append(
                     ClipOutput(
                         plan=plan,

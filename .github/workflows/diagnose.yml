@@ -223,3 +223,28 @@ jobs:
             browser-report.txt
             browser-page.json
           if-no-files-found: ignore
+
+      # Only my own [diagnose] pushes publish the report back; a user-triggered
+      # run leaves the repository untouched.
+      - name: Publish the browser report
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          cp browser-report.txt "diagnostics/browser-${RUNNER_OS}.txt"
+          git config user.name "clipper-diagnostics"
+          git config user.email "clipper-diagnostics@users.noreply.github.com"
+          git add -f diagnostics
+          if git diff --cached --quiet; then
+            echo "nothing new to publish"
+            exit 0
+          fi
+          git commit -m "diagnostics: browser (${RUNNER_OS}) [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+              echo "published"
+              break
+            fi
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 5
+          done

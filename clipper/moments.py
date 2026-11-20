@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .config import Settings
@@ -48,7 +48,9 @@ class ClipPlan:
     score: int = 50
     index: int = 0
     source: str = "llm"
-    layout: str = ""  # "" = decide from --fit, else force facecam | gameplay | cam
+    layout: str = ""
+    caption: str = ""
+    hashtags: list[str] = field(default_factory=list)  # "" = decide from --fit, else force facecam | gameplay | cam
 
     @property
     def duration(self) -> float:
@@ -66,6 +68,8 @@ class ClipPlan:
             "score": self.score,
             "source": self.source,
             "layout": self.layout,
+            "caption": self.caption,
+            "hashtags": list(self.hashtags),
         }
 
 
@@ -106,6 +110,25 @@ def _to_float(value: Any) -> float | None:
         if match:
             return float(match.group(0).replace(",", "."))
     return None
+
+
+def _hashtags(value: Any, limit: int = 8) -> list[str]:
+    """Normalise "#GTA6, gta6 #shorts" into a clean, de-duplicated list."""
+    if isinstance(value, str):
+        raw = re.split(r"[\s,;]+", value)
+    elif isinstance(value, (list, tuple)):
+        raw = [str(item) for item in value]
+    else:
+        raw = []
+    tags: list[str] = []
+    for item in raw:
+        tag = re.sub(r"[^\w#]", "", item.strip())
+        if not tag:
+            continue
+        tag = "#" + tag.lstrip("#")
+        if len(tag) > 2 and tag.lower() not in {t.lower() for t in tags}:
+            tags.append(tag)
+    return tags[:limit]
 
 
 def _text(value: Any, limit: int, fallback: str = "") -> str:
@@ -191,6 +214,9 @@ def validate_plans(
             reason=_text(raw.get("reason", raw.get("why")), 300),
             score=int(max(0, min(100, score if score is not None else 50))),
             source=source,
+            caption=_text(raw.get("caption", raw.get("post")), 400),
+            hashtags=_hashtags(raw.get("hashtags", raw.get("tags"))),
+            layout=_text(raw.get("layout"), 10),
         )
         if transcript is not None:
             plan = snap_to_transcript(plan, transcript)
