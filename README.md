@@ -312,6 +312,8 @@ Twitch/Kick/YouTube streams par streamer ka chehra ek chhote dabbe mein hota hai
 (clips workflow ka dropdown) us dabbe ko dhoondta hai aur clip banata hai: **chehra upar,
 gameplay neeche, 1080x1920**, hook title seam ke neeche, captions gameplay panel par.
 
+![facecam layout](docs/images/facecam-layout.png)
+
 Kaam kaise karta hai (GTA 6 Clipper skill se liya gaya algorithm):
 
 1. Clip ki window se 12 frames nikalta hai (`ffmpeg`).
