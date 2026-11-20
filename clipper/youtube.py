@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -627,6 +628,9 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
     if info is None:
+        direct = _direct_file_fallback(url, work_dir, settings)
+        if direct is not None:
+            return direct
         attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
         if attempted_browser is not None:
             return attempted_browser
@@ -651,6 +655,60 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         raise DownloadError(message)
 
     return _source_from_info(info, url, work_dir, rows, live_state)
+
+
+#: File extensions we will fetch ourselves when yt-dlp cannot handle a link.
+DIRECT_SUFFIXES = (
+    ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi",
+    ".m4a", ".mp3", ".aac", ".ogg", ".opus", ".wav",
+)
+
+
+def _looks_like_a_file(url: str) -> bool:
+    path = urllib.parse.urlsplit(url).path.lower()
+    return path.endswith(DIRECT_SUFFIXES)
+
+
+def _direct_file_fallback(url: str, work_dir: Path, settings: Settings) -> VideoSource | None:
+    """A file link that yt-dlp could not parse is still just bytes — fetch it ourselves.
+
+    This is the route that works with no proxy and no cookies: a Release asset, a Dropbox
+    ``?dl=1`` link, an S3 URL. Nothing on YouTube's side is involved.
+    """
+    if not _looks_like_a_file(url):
+        return None
+    from .browser import http_download
+
+    suffix = Path(urllib.parse.urlsplit(url).path).suffix.lower() or ".mp4"
+    target = work_dir / f"direct{suffix}"
+    log.info("this looks like a file, not a page — downloading it directly")
+    try:
+        http_download(url, target)
+    except Exception as exc:  # noqa: BLE001 - fall through to the other fallbacks
+        log.warning("direct download failed: %s", _one_line(str(exc)))
+        return None
+    if not target.exists() or target.stat().st_size < 1024:
+        log.warning("direct download produced no usable file")
+        return None
+
+    duration, width, height = _ffprobe_metadata(target, settings)
+    title = Path(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).stem or "video"
+    log.info(
+        "direct download: %s (%.1f MB, %.0fs)",
+        target.name,
+        target.stat().st_size / 1e6,
+        duration,
+    )
+    return VideoSource(
+        url=url,
+        video_id=slugify(title),
+        title=title,
+        duration=duration,
+        path=target,
+        width=width,
+        height=height,
+        info={"id": slugify(title), "title": title, "direct": True},
+    )
 
 
 def _upstream_fallback(url: str, work_dir: Path, settings: Settings) -> VideoSource | None:

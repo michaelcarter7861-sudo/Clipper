@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
 import sys
 import types
 from pathlib import Path
@@ -73,6 +75,13 @@ def make_settings(**kwargs) -> Settings:
     kwargs.setdefault("upstream", False)
     kwargs.setdefault("browser", "")
     return Settings(**kwargs)
+
+
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    """A tiny file server that does not print a line per request."""
+
+    def log_message(self, *args):  # noqa: D401 - keep test output clean
+        return
 
 
 class FakeYoutubeDL:
@@ -544,3 +553,38 @@ def test_friendly_error_keeps_the_old_cases():
     assert "cookies.txt" in _friendly_error("Sign in to confirm you're not a bot")
     assert "private" in _friendly_error("ERROR: Private video. Sign in if you've been granted access")
     assert "members-only" in _friendly_error("ERROR: This video is members-only")
+
+
+def test_a_plain_file_link_is_downloaded_without_yt_dlp(tmp_path: Path, monkeypatch):
+    """No YouTube, no yt-dlp: a Release asset / Dropbox link is just a file."""
+    import http.server
+    import threading
+
+    from clipper.youtube import _direct_file_fallback
+
+    payload = b"x" * 4096
+    directory = tmp_path / "served"
+    directory.mkdir()
+    (directory / "clip.mp4").write_bytes(payload)
+
+    handler = functools.partial(_QuietHandler, directory=str(directory))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/clip.mp4?dl=1"
+        monkeypatch.setattr("clipper.youtube._ffprobe_metadata", lambda path, settings: (12.0, 1280, 720))
+        source = _direct_file_fallback(url, tmp_path / "work", make_settings())
+        assert source is not None
+        assert source.path is not None and source.path.read_bytes() == payload
+        assert source.duration == 12.0
+        assert source.title == "clip"
+        assert source.info["direct"] is True
+    finally:
+        server.shutdown()
+
+
+def test_a_page_link_is_not_treated_as_a_file(tmp_path: Path):
+    from clipper.youtube import _direct_file_fallback
+
+    assert _direct_file_fallback("https://youtu.be/abc123def45", tmp_path, make_settings()) is None

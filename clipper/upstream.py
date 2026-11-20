@@ -146,10 +146,17 @@ def _height(text: str) -> int:
 
 
 def _proxied(proxy_base: str, url: str) -> str:
-    """Turn a googlevideo URL into the instance's proxy URL for it."""
+    """Turn a googlevideo URL into the instance's proxy URL for it.
+
+    Some instances already hand back proxied URLs (their host *is* the proxy host).
+    Wrapping those again points at a path that does not exist, so leave them alone.
+    """
     if not proxy_base:
         return url
     parts = urllib.parse.urlsplit(url)
+    proxy_host = urllib.parse.urlsplit(proxy_base).netloc
+    if proxy_host and parts.netloc == proxy_host:
+        return url
     tail = parts.path + (f"?{parts.query}" if parts.query else "")
     return f"{proxy_base.rstrip('/')}/{parts.netloc}{tail}"
 

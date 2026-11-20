@@ -188,3 +188,21 @@ def test_upstream_fallback_survives_a_broken_instance(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(upstream, "resolve", boom)
     assert _upstream_fallback("https://youtu.be/abc123def45", tmp_path, Settings()) is None
+
+
+def test_already_proxied_urls_are_not_wrapped_twice():
+    payload = {
+        "title": "x",
+        "proxyUrl": "https://piped-proxy.example.test",
+        "videoStreams": [
+            {
+                "url": "https://piped-proxy.example.test/videoplayback?itag=18",
+                "mimeType": "video/mp4",
+                "quality": "360p",
+                "height": 360,
+                "videoOnly": False,
+            }
+        ],
+    }
+    video = upstream.parse_piped(payload, "https://pipedapi.example.test", "abc")
+    assert video.muxed()[0].url == "https://piped-proxy.example.test/videoplayback?itag=18"
