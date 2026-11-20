@@ -311,56 +311,95 @@ jobs:
 
       - name: Publish a debug report into the repo
         if: ${{ always() && inputs.save_report }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          set -uo pipefail
-          report="diagnostics/clips-${GITHUB_RUN_ID}.txt"
           mkdir -p diagnostics
+          report="diagnostics/clips-${GITHUB_RUN_ID}.txt"
           {
             echo "run ${GITHUB_RUN_ID} · ${GITHUB_SHA:0:7} · $(date -u +%FT%TZ)"
-            echo "inputs: urls=${{ inputs.urls }} clips=${{ inputs.clips }} fit=${{ inputs.fit }} editing=${{ inputs.editing }} browser=${{ inputs.browser }}"
-            echo ""
+            echo "fit=${{ inputs.fit }} editing=${{ inputs.editing }} browser=${{ inputs.browser }} clips=${{ inputs.clips }}"
+            echo
             echo "== out/ =="
             find out -type f -printf '%10s  %p\n' 2>/dev/null | sort -k2 || true
-            echo ""
+            echo
             echo "== ffmpeg =="
             ffmpeg -version 2>&1 | head -n 2 || true
-            echo ""
-            echo "== log (last 120 lines) =="
-            tail -n 120 /tmp/clipper.log 2>/dev/null || echo "(no log)"
-          } > "$report" 2>&1
-          git config user.name "clipper-bot"
-          git config user.email "clipper-bot@users.noreply.github.com"
+            echo
+            echo "== log tail =="
+            tail -n 150 /tmp/clipper.log 2>/dev/null || echo "(no log at /tmp/clipper.log)"
+          } > "$report" || true
+          tail -n 40 "$report"
+          git config user.name "clipper-diagnostics"
+          git config user.email "clipper-diagnostics@users.noreply.github.com"
+          git add -f "$report"
+          if git diff --cached --quiet; then
+            echo "nothing new to publish"
+            exit 0
+          fi
+          git commit -m "diagnostics: clip run ${GITHUB_RUN_ID} [skip ci]"
           for attempt in 1 2 3 4; do
-            git fetch --quiet origin "${GITHUB_REF_NAME}" || true
-            git reset --quiet --hard "origin/${GITHUB_REF_NAME}" || true
-            cp "$report" "/tmp/report-${GITHUB_RUN_ID}.txt"
-            mkdir -p diagnostics && cp "/tmp/report-${GITHUB_RUN_ID}.txt" "$report"
-            git add "$report"
-            git commit --quiet -m "diagnostics: clip run ${GITHUB_RUN_ID} [skip ci]" || exit 0
-            if git push --quiet origin "HEAD:${GITHUB_REF_NAME}"; then
-              echo "report published: $report"
-              exit 0
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+              echo "published $report"
+              break
             fi
-            echo "push rejected (attempt $attempt), retrying"
-            sleep $((attempt * 5))
+            echo "push attempt ${attempt} failed, retrying"
+            sleep 5
           done
-          echo "::warning::could not publish the report; it is in the run log instead"
 
       - name: Publish clips as a GitHub Release
         if: ${{ inputs.publish_release == true }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The notes are the readable half of this step: they land in the Release body, so a
+          # phone-only user (or anyone without the run's log) can see what the run wrote.
+          appendix=/tmp/appendix.md
+          {
+            echo ""
+            echo "## What the run wrote"
+            echo ""
+            echo '```'
+            find out -type f -printf '%10s  %p\n' 2>/dev/null | sort -k2 || true
+            echo '```'
+            if [ -f /tmp/clipper.log ]; then
+              echo ""
+              echo "<details><summary>Last 40 log lines</summary>"
+              echo ""
+              echo '```'
+              tail -n 40 /tmp/clipper.log
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } > "$appendix"
+
           mapfile -t files < <(find out -name '*.mp4' -size +0c | sort)
+          stamp="$(date -u +%Y%m%d-%H%M%S)"
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No clips to publish."
+            # Still publish: it makes the log readable without downloading anything.
+            {
+              echo "Run ${GITHUB_RUN_ID} produced no clips."
+              echo ""
+              echo "Open the run log for the long version, or re-run with `save_report` on."
+              cat "$appendix"
+            } > /tmp/notes-empty.md
+            gh release create "run-${stamp}" \
+              --title "No clips · ${stamp} UTC" \
+              --notes-file /tmp/notes-empty.md \
+              --latest=false || exit 0
+            echo "Published a debug release: run-${stamp}"
             exit 0
           fi
+
           notes=out/report.md
-          [ -f "$notes" ] || { echo "Clipper run $(date -u)" > /tmp/notes.md; notes=/tmp/notes.md; }
-          tag="clips-$(date -u +%Y%m%d-%H%M%S)"
+          if [ -f "$notes" ]; then
+            cat "$appendix" >> "$notes"
+          else
+            printf 'Clipper run %s\n' "$stamp" > /tmp/notes.md
+            cat "$appendix" >> /tmp/notes.md
+            notes=/tmp/notes.md
+          fi
+          tag="clips-${stamp}"
           gh release create "$tag" "${files[@]}" \
             --title "Clips · $(date -u +%Y-%m-%d)" \
             --notes-file "$notes" \
