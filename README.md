@@ -385,6 +385,17 @@ Hare clip ke sath likha jata hai: `TITLE`, `HOOK`, `CAPTION`, hashtags, `SOURCE`
 timestamps. LLM backend caption + hashtags deta hai (`caption`, `hashtags` uske JSON mein);
 heuristic mode mein sirf title/hook/source.
 
+### Jab run kuch na banaye — "prove it" switches
+
+Zero clips ka matlab failure hai, kamyabi nahi: `Run summary` ab job ko red kar deta hai.
+
+- `publish_release` on → clips GitHub Release mein attach (phone se seedha download), plus
+  Release notes mein `out/` ki listing aur log ki last 40 lines.
+- `save_report` on → wahi listing + log ka tail `diagnostics/clips-<run>.txt` mein commit ho
+  jata hai, run ke baad repo mein parh lein.
+- Ek asli proof: `urls: samples/facecam-sample.mp4` (repo ke andar ka local file) → 4.7 MB
+  clip, `fit: facecam`. Details: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
 ### Runner ka IP block ho to (GitHub Actions ka sab se bara masla)
 
 GitHub runners ke IP **datacenter** ke hote hain, aur YouTube unhein aksar sirf thumbnails deta hai.
