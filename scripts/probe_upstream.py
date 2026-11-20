@@ -93,6 +93,42 @@ def get(url: str, headers: dict | None = None, data: bytes | None = None) -> tup
         raise RuntimeError(str(exc)[:120]) from exc
 
 
+def live_instances() -> list[tuple[str, str]]:
+    """Ask the projects for their own current instance lists (they change weekly)."""
+    found: list[tuple[str, str]] = []
+    try:
+        status, body = get("https://api.invidious.io/instances.json?sort_by=health")
+        if status == 200:
+            for entry in json.loads(body.decode("utf-8", "replace"))[:20]:
+                try:
+                    name, info = entry[0], entry[1]
+                except (IndexError, TypeError, ValueError):
+                    continue
+                if not isinstance(info, dict):
+                    continue
+                api = (info.get("api") or {})
+                if not api or not (api.get("url") or api.get("enabled")):
+                    continue
+                if str(info.get("type")) != "https" and not info.get("uri"):
+                    continue
+                uri = str(info.get("uri") or f"https://{name}")
+                found.append(("invidious", uri.rstrip("/")))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  (invidious list failed: {str(exc)[:80]})", flush=True)
+    try:
+        status, body = get("https://piped-instances.kavin.rocks/")
+        if status == 200:
+            for entry in json.loads(body.decode("utf-8", "replace")):
+                if not isinstance(entry, dict):
+                    continue
+                api_url = str(entry.get("api_url") or "").rstrip("/")
+                if api_url and not entry.get("disabled"):
+                    found.append(("piped", api_url))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  (piped list failed: {str(exc)[:80]})", flush=True)
+    return found[:24]
+
+
 def probe_media(url: str) -> str:
     request = urllib.request.Request(
         url,
@@ -189,6 +225,16 @@ def main() -> int:
     url = sys.argv[1] if len(sys.argv) > 1 else "https://youtu.be/DENbjnmSems"
     vid = video_id(url)
     print(f"== upstream probe · {vid} · {url} ==", flush=True)
+
+    print("\n-- live instance lists --", flush=True)
+    live = live_instances()
+    for kind, base in live:
+        print(f"   {kind}: {base}", flush=True)
+    if live:
+        print("\n-- live lists, probed --", flush=True)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for line in pool.map(lambda item: check(item[0], item[1], vid), live):
+                print(line, flush=True)
 
     groups: list[tuple[str, list[str]]] = [
         ("invidious", INVIDIOUS),
