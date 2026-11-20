@@ -1,23 +1,22 @@
 os: Linux
-date: 2026-11-20T12:46:50Z
-ip: 3.42.157.65
+date: 2026-11-20T12:48:34Z
+ip: 134.138.33.10
 proxy configured: no
 obscura 0.2.7
-12:46:55  WARNING yt-dlp: ERROR: [youtube] aqz-KE-bpKQ: This content isn’t available.
-12:46:55  WARNING could not list formats for https://www.youtube.com/watch?v=aqz-KE-bpKQ: ERROR: [youtube] aqz-KE-bpKQ: This content isn’t available.
-youtube: FAIL — the test video listed 0 format(s) but none downloadable
+12:48:36  WARNING yt-dlp: ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+youtube: FAIL — YouTube asked this runner to prove it is not a bot. Add a cookies.txt file as the YT_COOKIES secret (see docs/SETUP.md).
 browser: PASS — obscura 0.2.7
 
 == raw obscura probes ==
 Fetching https://www.youtube.com/watch?v=aqz-KE-bpKQ...
-[2m2026-11-20T12:46:56.677546Z[0m [31mERROR[0m [2mobscura::console[0m[2m:[0m ReferenceError: solveSimpleChallenge is not defined
-    at eval (eval at _resolveInlineHandler (<obscura:bootstrap>:4736:21), <anonymous>:3:56)
-exit: 1
+[2m2026-11-20T12:48:37.558354Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_addEventListener is not a function
+    at Gb (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js:52:38)
+/home/runner/work/_temp/ebe0edcc-9ebc-4c83-9355-34ad4b97b062.sh: line 37:  2453 Aborted                    (core dumped) obscura fetch "$URL" --eval "document.title" --timeout 60 2>&1
+      2454 Done                       | head -n 3
+exit: 134
 Fetching https://www.youtube.com/watch?v=aqz-KE-bpKQ...
-[2m2026-11-20T12:46:57.471348Z[0m [31mERROR[0m [2mobscura::console[0m[2m:[0m ReferenceError: solveSimpleChallenge is not defined
-    at eval (eval at _resolveInlineHandler (<obscura:bootstrap>:4736:21), <anonymous>:3:56)
-    at _eventTa/home/runner/work/_temp/8af27e5f-6c44-449c-a794-633f8ce7b473.sh: line 37:  2462 Aborted                    (core dumped) obscura fetch "$URL" --dump cookies --timeout 60 2>&1
-      2463 Done                       | head -c 300
+[2m2026-11-20T12:48:43.001236Z[0m [33m WARN[0m [2mobscura_browser::page[0m[2m:[0m Script error (https://www.youtube.com/s/desktop/90fc6e41/jsbin/webcomponents-sd.vflset/webcomponents-sd.js): JS error: TypeError: window.__shady_native_ad/home/runner/work/_temp/ebe0edcc-9ebc-4c83-9355-34ad4b97b062.sh: line 37:  2483 Aborted                    (core dumped) obscura fetch "$URL" --dump cookies --timeout 60 2>&1
+      2484 Done                       | head -c 300
 
 Usage: obscura fetch [OPTIONS] [URL]
 
@@ -46,8 +45,8 @@ Options:
           Number of URLs fetched concurrently in batch mode. Ignored without --file
 
 == browser player response ==
-ok: True | elapsed: 2.4 s
-browser loaded the page but found no player response
-cookies: 1
+ok: True | elapsed: 8.3 s
+browser says playability=LOGIN_REQUIRED, 0 stream(s) — Sign in to confirm you’re not a bot
+cookies: 9
 video stream: None None
 audio stream: None
