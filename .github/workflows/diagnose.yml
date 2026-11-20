@@ -1,10 +1,11 @@
 name: Clipper · diagnose a link
 
-# Answers real questions instead of guessing:
-#   * does this runner network get a downloadable stream for the link?
-#   * does it change with cookies / without cookies?
-#   * is one GitHub runner OS luckier than another?
-# The result is published to diagnostics/<os>.txt so it can be read without the log.
+# Answers one question with measurements instead of guesses:
+#   does a GitHub runner get a downloadable YouTube stream for this link,
+#   with cookies and without, and does the runner OS matter?
+#
+# Run it from the Actions tab ("Run workflow", paste a link), then read
+# diagnostics/<os>.txt in the artifact — or the job summary on the run page.
 
 on:
   workflow_dispatch:
@@ -12,7 +13,7 @@ on:
       url:
         description: "YouTube (or direct video) link to diagnose"
         required: true
-        default: "https://youtu.be/DENbjnmSems"
+        default: "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
         type: string
   push:
     branches: ["**"]
@@ -47,8 +48,9 @@ jobs:
       - name: Ask YouTube what it offers (cookies and no cookies)
         shell: bash
         env:
-          URL: ${{ github.event.inputs.url || 'https://youtu.be/DENbjnmSems' }}
+          URL: ${{ github.event.inputs.url || 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          YT_PROXY: ${{ secrets.YT_PROXY }}
         run: |
           mkdir -p diagnostics
           report="diagnostics/${RUNNER_OS}.txt"
@@ -63,16 +65,18 @@ jobs:
               except Exception:
                   pass
           pathlib.Path("cookies.txt").write_text(raw, encoding="utf-8")
-          print("cookies.txt written:", len(raw), "bytes")
+          print("cookies.txt bytes:", len(raw))
           PY
-          else
-            echo "no YT_COOKIES secret available for this run"
           fi
+
+          proxy_arg=""
+          [ -n "$YT_PROXY" ] && proxy_arg="--proxy $YT_PROXY"
 
           {
             echo "os: ${RUNNER_OS}"
             echo "date: $(date -u +%FT%TZ)"
             echo "ip: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
+            echo "proxy configured: $([ -n "$YT_PROXY" ] && echo yes || echo no)"
             python -c "import yt_dlp; print('yt-dlp', yt_dlp.version.__version__)" || true
             echo
             for mode in cookies nocookie; do
@@ -84,14 +88,14 @@ jobs:
               fi
               for client in default tv android web_safari; do
                 echo "== ${mode} · client=${client} =="
-                yt-dlp -F --no-warnings $args \
+                yt-dlp -F --no-warnings $args $proxy_arg \
                   --extractor-args "youtube:player_client=${client}" "$URL" 2>&1 | head -n 22 || true
                 echo
               done
             done
-            echo "== download attempt (cookies, best) =="
+            echo "== download attempt (cookies, best, 20 MB cap) =="
             if [ -f cookies.txt ]; then
-              yt-dlp -f b --no-warnings --cookies cookies.txt \
+              yt-dlp -f b --no-warnings --cookies cookies.txt $proxy_arg \
                 -o "dl.%(ext)s" --max-filesize 20M "$URL" 2>&1 | tail -n 8 || true
               ls -l dl.* 2>/dev/null || echo "no file downloaded"
             fi
@@ -99,12 +103,30 @@ jobs:
 
           cat "$report"
 
+          {
+            echo "### Diagnose · ${RUNNER_OS}"
+            echo ""
+            echo '```'
+            grep -E "^os:|^ip:|^== |ERROR:|sb0 " "$report" | head -n 40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.os }}
+          path: diagnostics/
+          if-no-files-found: ignore
+
+      # Only my own [diagnose] pushes publish the file back; a user-triggered run
+      # leaves the repository untouched (the artifact and summary are enough).
       - name: Publish the report on this branch
+        if: github.event_name == 'push'
         shell: bash
         run: |
           git config user.name "clipper-diagnostics"
           git config user.email "clipper-diagnostics@users.noreply.github.com"
-          git add diagnostics
+          git add -f diagnostics
           if git diff --cached --quiet; then
             echo "nothing new to publish"
             exit 0
