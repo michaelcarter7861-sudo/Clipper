@@ -17,6 +17,7 @@ from clipper.browser import (
     harvest_cookies,
     http_download,
     netscape_cookies,
+    parse_player_response,
     pick_streams,
     playability,
     streams,
@@ -300,3 +301,63 @@ def test_http_download_rejects_an_empty_body(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(browser.urllib.request, "urlopen", lambda *a, **k: Empty())
     with pytest.raises(RuntimeError):
         http_download("https://example.test/v", tmp_path / "out.bin")
+
+
+HTML_FIXTURE = """<!DOCTYPE html><html><head><script>
+var ytInitialPlayerResponse = {"playabilityStatus":{"status":"OK","reason":""},
+"streamingData":{"formats":[{"itag":18,"url":"https://example.test/v18","mimeType":"video/mp4","height":360}],
+"adaptiveFormats":[]},"videoDetails":{"videoId":"x","title":"T","lengthSeconds":"10"}};
+</script><script>var other = {"a": 1};</script></head><body></body></html>"""
+
+BLOCKED_FIXTURE = """<html><script>ytInitialPlayerResponse = {"playabilityStatus":
+{"status":"LOGIN_REQUIRED","reason":"Sign in to confirm you\u2019re not a bot"},"videoDetails":{"videoId":"x"}};
+</script></html>"""
+
+
+def test_parse_player_response_reads_inline_json():
+    page = parse_player_response(HTML_FIXTURE)
+    assert page is not None
+    assert page["playabilityStatus"]["status"] == "OK"
+    assert page["videoDetails"]["title"] == "T"
+
+
+def test_parse_player_response_survives_braces_inside_strings():
+    tricky = '<script>ytInitialPlayerResponse = {"a": "}{", "b": {"c": 1}};</script>'
+    assert parse_player_response(tricky) == {"a": "}{", "b": {"c": 1}}
+
+
+def test_parse_player_response_reports_a_blocked_page():
+    page = parse_player_response(BLOCKED_FIXTURE)
+    assert page is not None
+    assert playability(page) == ("LOGIN_REQUIRED", "Sign in to confirm you\u2019re not a bot")
+
+
+def test_parse_player_response_returns_none_for_junk():
+    assert parse_player_response("") is None
+    assert parse_player_response("<html>no player here</html>") is None
+    assert parse_player_response("ytInitialPlayerResponse = {broken") is None
+
+
+def test_fetch_page_falls_back_to_the_raw_body(tmp_path: Path):
+    """The JS path crashes on YouTube; the raw HTML still has the player response."""
+    script = tmp_path / "obscura"
+    script.write_text(
+        f"""#!{sys.executable}
+import json, sys
+args = sys.argv[1:]
+if "--version" in args:
+    print("obscura 0.2.7"); sys.exit(0)
+if "original" in args:
+    sys.stdout.write({json.dumps(HTML_FIXTURE)}); sys.exit(0)
+if "cookies" in args:
+    print("[]"); sys.exit(0)
+print("Aborted (core dumped)", file=sys.stderr)
+sys.exit(134)
+"""
+    )
+    script.chmod(0o755)
+    page = fetch_page("https://youtu.be/x", Settings(browser=str(script)), want_cookies=False)
+    assert page.ok is True
+    assert page.status == "OK"
+    assert page.downloadable is True
+    assert "raw page" in page.note

@@ -54,6 +54,7 @@ class BrowserPage:
     error: str = ""
     elapsed: float = 0.0
     binary: str = ""
+    note: str = ""
 
     # -- player response helpers ------------------------------------------- #
     @property
@@ -229,6 +230,55 @@ def video_details(player_response: dict[str, Any] | None) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # the browser itself
 # --------------------------------------------------------------------------- #
+PLAYER_RESPONSE_KEYS = ("ytInitialPlayerResponse", "PLAYER_RESPONSE")
+
+
+def parse_player_response(html: str) -> dict[str, Any] | None:
+    """Pull ``ytInitialPlayerResponse`` out of a watch page's HTML.
+
+    YouTube inlines it in the server-rendered page, so a *raw* fetch (no JS) still
+    carries the playability status and, when the IP is allowed, the stream URLs.
+    """
+    if not html:
+        return None
+    for key in PLAYER_RESPONSE_KEYS:
+        marker = f"{key}\")" if key == "PLAYER_RESPONSE" else f"{key} ="
+        start = html.find(marker)
+        if start < 0:
+            continue
+        brace = html.find("{", start)
+        if brace < 0:
+            continue
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(brace, len(html)):
+            char = html[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        value = json.loads(html[brace : index + 1])
+                    except json.JSONDecodeError:
+                        break
+                    if isinstance(value, dict):
+                        return value
+                    break
+    return None
+
+
 def _parse_json_output(text: str) -> Any:
     """``--eval`` prints the value as JSON; a stringified object needs two passes."""
     raw = (text or "").strip()
@@ -293,6 +343,17 @@ def fetch_page(
             )
         else:
             page.ok = True
+        if page.player_response is None:
+            # YouTube's page JS can take an engine down (obscura 0.2.7 aborts on
+            # youtube.com). The server-rendered HTML still carries the player
+            # response, so ask for the raw body instead: no JS, no crash.
+            raw = _fetch_raw(url, settings, limit)
+            if raw:
+                page.player_response = parse_player_response(raw)
+                if page.player_response is not None:
+                    page.ok = True
+                    page.error = ""
+                    page.note = "raw page (JS bypassed)"
         if want_cookies and storage is not None:
             page.cookies = harvest_cookies(url, settings, storage_dir=storage, timeout=limit)
     except subprocess.TimeoutExpired:
@@ -301,6 +362,20 @@ def fetch_page(
         page.error = str(exc)
     page.elapsed = time.time() - started
     return page
+
+
+def _fetch_raw(url: str, settings: Settings, limit: int) -> str:
+    """``obscura fetch --dump original``: the HTTP body, no browser engine."""
+    binary = browser_binary(settings)
+    if not binary:
+        return ""
+    command = _command(settings, "fetch", url, "--dump", "original", "--timeout", str(limit))
+    try:
+        completed = _run(command, timeout=limit + 60)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("raw fetch failed: %s", exc)
+        return ""
+    return completed.stdout or ""
 
 
 def harvest_cookies(
