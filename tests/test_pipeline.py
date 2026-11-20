@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from clipper.config import Settings
 from clipper.moments import ClipPlan
 from clipper.pipeline import (
@@ -249,3 +251,38 @@ def test_chat_signals_are_parsed_from_a_file(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(pipeline_module, "download_chat", lambda url, work_dir, settings: path)
     events = pipeline_module._chat_signals("https://example.test/v", tmp_path, Settings())
     assert len(events) == 1 and events[0].count == 10
+
+
+@pytest.mark.ffmpeg
+def test_a_video_without_audio_still_produces_a_transcript_object(tmp_path: Path):
+    """No audio track means no words — not a failed run."""
+    import os
+    import shutil
+    import subprocess
+
+    from clipper.pipeline import get_transcript
+    from clipper.youtube import VideoSource
+
+    ffmpeg = os.environ.get("CLIP_TEST_FFMPEG") or shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("ffmpeg not available")
+    silent = tmp_path / "silent.mp4"
+    subprocess.run(
+        [
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=6",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(silent),
+        ],
+        check=True,
+    )
+    source = VideoSource(
+        url="silent.mp4", video_id="silent", title="silent", duration=6.0, path=silent, local=True
+    )
+    settings = Settings(
+        ffprobe=os.environ.get("CLIP_TEST_FFPROBE") or shutil.which("ffprobe") or "",
+        work_dir=tmp_path,
+    )
+    transcript = get_transcript(source, tmp_path / "work", settings)
+    assert transcript.is_empty
+    assert transcript.source == "silent"
+    assert transcript.duration == 6.0
