@@ -229,13 +229,22 @@ def get_transcript(
                 transcript = candidate
 
     if transcript is None:
-        if not whisper_available():
+        from .render import has_audio
+
+        silent = source.path is not None and not has_audio(settings.ffprobe, source.path)
+        if silent:
+            # A video with no audio track cannot be transcribed — but it can still be
+            # clipped. Do not fail a run over it; captions simply have nothing to say.
+            warning("this video has no audio track — no transcript, clips are picked by pacing")
+            transcript = Transcript(segments=[], source="silent", duration=source.duration or 0.0)
+        elif not whisper_available():
             raise PipelineError(
                 "this video has no usable subtitles and faster-whisper is not installed. "
                 "Install requirements-whisper.txt (or pick a video with captions)."
             )
-        with step("Transcribing audio (no usable subtitles)"):
-            transcript = transcribe(source.path, settings, work_dir)
+        else:
+            with step("Transcribing audio (no usable subtitles)"):
+                transcript = transcribe(source.path, settings, work_dir)
 
     if source.duration:
         transcript.duration = source.duration

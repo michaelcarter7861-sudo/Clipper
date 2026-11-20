@@ -111,6 +111,26 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Probe the public instances (the no-proxy fallback)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          URL: ${{ github.event.inputs.url || 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' }}
+        run: |
+          report="diagnostics/${RUNNER_OS}.txt"
+          {
+            echo
+            echo "== public instances =="
+            python scripts/probe_upstream.py "$URL" || true
+            echo
+            echo "== public instances (curl) =="
+            bash scripts/probe_curl.sh "$URL" || true
+            echo
+            echo "== media paths (curl) =="
+            python scripts/probe_media.py "$URL" || true
+          } >> "$report" 2>&1
+          sed -n '/== public instances ==/,$p' "$report"
+
       - name: Upload the report
         uses: actions/upload-artifact@v4
         with:
@@ -140,6 +160,76 @@ jobs:
             echo "push attempt ${attempt} failed, retrying"
             sleep 5
           done
+
+  pot:
+    # The one thing that can still work from a datacenter IP without a proxy: mint the
+    # proof-of-origin token YouTube expects, with the community provider that runs the
+    # BotGuard challenge in a real JS runtime. No bypass, no cookies, no proxy.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[diagnose]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yt-dlp with the PO token provider
+        shell: bash
+        run: |
+          python -m pip install --quiet --upgrade yt-dlp
+          python -m pip install --quiet --upgrade bgutil-ytdlp-pot-provider || echo "::warning::plugin install failed"
+          docker run -d --name bgutil -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest \
+            || echo "::warning::docker provider failed"
+          for i in $(seq 1 20); do
+            if curl -sf -m 2 http://127.0.0.1:4416/ping >/dev/null; then echo "provider: up"; break; fi
+            sleep 3
+          done
+          curl -s -m 5 http://127.0.0.1:4416/ping || echo "provider: no ping"
+
+      - name: Ask YouTube again, now with a PO token
+        shell: bash
+        env:
+          URL: ${{ github.event.inputs.url || 'https://youtu.be/DENbjnmSems' }}
+        run: |
+          mkdir -p diagnostics
+          report="diagnostics/pot-Linux.txt"
+          {
+            echo "url: $URL"
+            echo "date: $(date -u +%FT%TZ)"
+            echo "ip: $(curl -s --max-time 10 https://api.ipify.org || echo unknown)"
+            python -c "import yt_dlp, importlib.metadata as m; print('yt-dlp', yt_dlp.version.__version__); print('pot plugin', m.version('bgutil-ytdlp-pot-provider'))" 2>&1 || true
+            echo
+            for client in web tv android_vr mweb; do
+              echo "== client=${client} =="
+              yt-dlp -F --no-warnings --extractor-args "youtube:player_client=${client}" "$URL" 2>&1 | head -n 18 || true
+              echo
+            done
+            echo "== download 20 MB with the provider =="
+            yt-dlp -f "bv*[height<=720]+ba/b[height<=720]/b" --no-warnings --max-filesize 20M \
+              -o "dl.%(ext)s" "$URL" 2>&1 | tail -n 12 || true
+            ls -l dl.* 2>/dev/null || echo "no file downloaded"
+          } >> "$report" 2>&1
+          cat "$report"
+
+      - name: Publish the report on this branch
+        if: github.event_name == 'push' || startsWith(github.ref_name, 'arena/')
+        shell: bash
+        run: |
+          git config user.name "clipper-diagnostics"
+          git config user.email "clipper-diagnostics@users.noreply.github.com"
+          git add -f diagnostics
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -m "diagnostics: po-token (Linux) [skip ci]"
+          for attempt in 1 2 3 4; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then echo published; break; fi
+            sleep 5
+          done
+
 
   browser:
     # Same question, different asker: what does a real browser get for this link?

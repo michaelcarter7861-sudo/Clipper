@@ -193,6 +193,8 @@ class Settings:
 
     # youtube
     cookies: Path | None = None
+    upstream: bool = True  # borrow a public Piped/Invidious instance when YouTube refuses
+    upstream_instances: str = ""  # "invidious:https://…,piped:https://…" (blank = built-in list)
     ytdlp_extra_args: list[str] = field(default_factory=list)
     proxy: str = ""
 
@@ -371,6 +373,8 @@ def settings_from_env(**overrides) -> Settings:
         "cookies": env_str("CLIP_COOKIES"),
         "ytdlp_extra_args": env_list("YTDLP_EXTRA_ARGS"),
         "proxy": env_str("CLIP_PROXY", "") or env_str("YT_PROXY", ""),
+        "upstream": env_bool("CLIP_UPSTREAM", True),
+        "upstream_instances": env_str("CLIP_UPSTREAM_INSTANCES", ""),
         "dry_run": env_bool("CLIP_DRY_RUN", False),
         "keep_source": env_bool("CLIP_KEEP_SOURCE", False),
         "fail_fast": env_bool("CLIP_FAIL_FAST", False),

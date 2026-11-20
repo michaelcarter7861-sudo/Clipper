@@ -22,7 +22,8 @@ debugging a link.
 | Symptom in the report | Cause | Fix |
 |---|---|---|
 | `HTTP Error 403: Forbidden` on a `commondatastorage.googleapis.com` / sample link | the host stopped serving the runner's IP; nothing to do with Clipper | use the real video link, or the bundled `samples/facecam-sample.mp4` |
-| `Sign in to confirm you're not a bot` | YouTube is refusing the runner's datacenter IP, for every client (yt-dlp's android/ios/tv/mweb/web **and** the obscura browser) | `YT_PROXY` secret with a residential proxy, or `YT_COOKIES`, or run where the IP is residential |
+| `Sign in to confirm you're not a bot` | YouTube is refusing the runner's datacenter IP. Measured 2026-11-20: 8 yt-dlp clients, the obscura browser, the PO-token provider plugin, and 20+ public Invidious/Piped instances all fail; Piped's media URLs are signed for the *instance's* IP, so they 401 here | give a **direct file URL** (Release asset, Dropbox `?dl=1`), or `YT_COOKIES`, or a residential `YT_PROXY` |
+| `ffmpeg could not extract audio` on a video with no audio track | the source really has no audio | nothing to do — since 2026-11-20 such a video is clipped with no captions instead of failing |
 | `no clips passed validation` | the video is shorter than `min_duration`, or the captions are empty | lower `min_duration`, or let Whisper transcribe |
 | `ffmpeg produced no output` | the filter chain failed on this source | read the 600-character ffmpeg message in the log |
 | `out/` listing shows a `.txt` next to no `.mp4` | that clip threw during render | the log line `clip N failed: …` has the reason |

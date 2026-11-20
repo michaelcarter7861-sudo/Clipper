@@ -139,6 +139,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the browser with fingerprint spoofing (off by default)",
     )
     youtube.add_argument(
+        "--no-upstream", dest="upstream", action="store_false", default=None,
+        help=(
+            "do not borrow a public Piped/Invidious instance when YouTube refuses this "
+            "machine (that fallback needs no proxy)"
+        ),
+    )
+    youtube.add_argument(
+        "--upstream-instances",
+        help='instances to try, e.g. "invidious:https://inv.example,piped:https://piped.example"',
+    )
+    youtube.add_argument(
         "--chat",
         help="a live_chat replay file (yt-dlp writes *.live_chat.json)",
     )

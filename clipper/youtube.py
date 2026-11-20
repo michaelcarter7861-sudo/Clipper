@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,8 +49,12 @@ class VideoSource:
 
     @property
     def slug(self) -> str:
-        base = slugify(self.title) or "video"
-        return f"{base[:60]}-{self.video_id}" if self.video_id else base[:60]
+        base = slugify(self.title)[:60].strip("-") or "video"
+        # A "title" can be a signed URL when a redirect is mistaken for a page; a video id can
+        # be one too. Neither may become a directory name, and neither may be long.
+        tag = slugify(self.video_id)[:24].strip("-")
+        slug = f"{base}-{tag}" if tag else base
+        return slug[:80].strip("-") or "video"
 
     def to_dict(self) -> dict:
         return {
@@ -561,6 +566,15 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
     local = local_media_path(url)
     if local is not None:
         return local_source(url, local, settings)
+
+    # A URL that names a media file is a file. yt-dlp only adds failure modes here (it
+    # treats the redirect target as a page, invents a title from the signed query, and can
+    # report a download it never wrote), so fetch the bytes ourselves first.
+    if _looks_like_a_file(url):
+        direct = _direct_file_fallback(url, work_dir, settings)
+        if direct is not None:
+            return direct
+        log.warning("the direct download did not work — asking yt-dlp instead")
     try:
         import yt_dlp
     except ImportError as exc:  # pragma: no cover
@@ -618,24 +632,27 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             reason = _one_line(last_error)
             errors.append((attempt.label, reason))
             if not _is_retryable(last_error):
-                _write_formats_report(settings.out_dir, url, probed, errors, live_state, fatal=reason)
-                raise DownloadError(
-                    _friendly_error(
-                        last_error,
-                        rows,
-                        live=live,
-                        images_only=images_only,
-                        clients_tried=[label for label, _ in errors],
-                    )
-                ) from exc
+                # Not worth another yt-dlp client, but the browser and the public
+                # instances still get their turn in the block after this loop.
+                log.warning("%s failed and is not worth retrying (%s)", attempt.label, reason)
+                break
             log.warning("%s failed (%s) — trying the next attempt", attempt.label, reason)
             continue
         log.info("downloading with: %s (%s)", attempt.label, attempt.selector)
         break
+    if info is not None and not _usable_media(_downloaded_path(info, work_dir), settings):
+        if live_state == "is_live":
+            log.debug("live stream: skipping the media sanity check")
+        else:
+            log.warning(
+                "yt-dlp reported success but wrote no playable file — trying the other routes"
+            )
+            info = None
+
     if info is None:
-        attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
-        if attempted_browser is not None:
-            return attempted_browser
+        rescued = _rescue(url, work_dir, settings, probed=probed)
+        if rescued is not None:
+            return rescued
         _write_formats_report(settings.out_dir, url, probed, errors, live_state)
         message = _friendly_error(
             last_error,
@@ -654,6 +671,139 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
         raise DownloadError(message)
 
     return _source_from_info(info, url, work_dir, rows, live_state)
+
+
+#: File extensions we will fetch ourselves when yt-dlp cannot handle a link.
+DIRECT_SUFFIXES = (
+    ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi",
+    ".m4a", ".mp3", ".aac", ".ogg", ".opus", ".wav",
+)
+
+
+def _looks_like_a_file(url: str) -> bool:
+    path = urllib.parse.urlsplit(url).path.lower()
+    return path.endswith(DIRECT_SUFFIXES)
+
+
+def _direct_file_fallback(url: str, work_dir: Path, settings: Settings) -> VideoSource | None:
+    """A file link that yt-dlp could not parse is still just bytes — fetch it ourselves.
+
+    This is the route that works with no proxy and no cookies: a Release asset, a Dropbox
+    ``?dl=1`` link, an S3 URL. Nothing on YouTube's side is involved.
+    """
+    if not _looks_like_a_file(url):
+        return None
+    from .browser import http_download
+
+    suffix = Path(urllib.parse.urlsplit(url).path).suffix.lower() or ".mp4"
+    target = work_dir / f"direct{suffix}"
+    log.info("this looks like a file, not a page — downloading it directly")
+    try:
+        http_download(url, target)
+    except Exception as exc:  # noqa: BLE001 - fall through to the other fallbacks
+        log.warning("direct download failed: %s", _one_line(str(exc)))
+        return None
+    if not _usable_media(target, settings):
+        log.warning("direct download produced a file that no decoder will open")
+        target.unlink(missing_ok=True)
+        return None
+
+    duration, width, height = _ffprobe_metadata(target, settings)
+    title = Path(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).stem or "video"
+    log.info(
+        "direct download: %s (%.1f MB, %.0fs)",
+        target.name,
+        target.stat().st_size / 1e6,
+        duration,
+    )
+    return VideoSource(
+        url=url,
+        video_id=slugify(title),
+        title=title,
+        duration=duration,
+        path=target,
+        width=width,
+        height=height,
+        info={"id": slugify(title), "title": title, "direct": True},
+    )
+
+
+def _rescue(url: str, work_dir: Path, settings: Settings, *, probed: dict | None = None) -> VideoSource | None:
+    """The last three routes, cheapest first: a plain file, the browser, a public instance."""
+    direct = _direct_file_fallback(url, work_dir, settings)
+    if direct is not None:
+        return direct
+    attempted_browser = _browser_fallback(url, work_dir, settings, probed=probed)
+    if attempted_browser is not None:
+        return attempted_browser
+    return _upstream_fallback(url, work_dir, settings)
+
+
+def _upstream_fallback(url: str, work_dir: Path, settings: Settings) -> VideoSource | None:
+    """Last resort: let a public Piped/Invidious instance do the YouTube request.
+
+    This machine's IP is what YouTube refuses; an instance in another network is not
+    refused (usually). Nothing is bypassed — the instance makes a normal request and
+    hands back media URLs, and every clip is still cut locally.
+    """
+    if not getattr(settings, "upstream", False):
+        return None
+    video_id = video_id_from_url(url)
+    if not video_id:
+        return None
+    try:
+        from . import upstream
+    except ImportError:  # pragma: no cover
+        return None
+
+    log.info("yt-dlp and the browser were both refused — trying a public instance for %s", video_id)
+    try:
+        video = upstream.resolve(video_id, settings)
+    except Exception as exc:  # noqa: BLE001 - an instance must never break a run
+        log.warning("upstream lookup failed: %s", str(exc)[:200])
+        return None
+    if video is None:
+        log.warning("no public instance knew this link either")
+        return None
+
+    try:
+        path, note = upstream.download(
+            video, work_dir, settings, max_height=int(settings.max_video_height or 0)
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("upstream download failed: %s", str(exc)[:200])
+        return None
+
+    captions = None
+    try:
+        captions = upstream.fetch_captions(video, work_dir, settings)
+    except Exception:  # noqa: BLE001 - captions are optional
+        captions = None
+
+    duration, width, height = _ffprobe_metadata(path, settings)
+    log.info(
+        "upstream: %s gave us the video (%s, %.0fs) — continuing without yt-dlp",
+        video.instance,
+        note,
+        video.duration or duration,
+    )
+    return VideoSource(
+        url=url,
+        video_id=video_id,
+        title=video.title or video_id,
+        duration=video.duration or duration,
+        uploader=video.uploader,
+        path=path,
+        width=width,
+        height=height,
+        subtitle_files=[captions] if captions else [],
+        info={
+            "id": video_id,
+            "title": video.title,
+            "instance": video.instance,
+            "upstream": note,
+        },
+    )
 
 
 def _browser_fallback(
@@ -817,10 +967,13 @@ def _source_from_info(
         [p for p in work_dir.glob("source*.*") if p.suffix.lower() in {".vtt", ".srt"}]
     )
 
+    title = str(info.get("title") or "untitled")
+    if "://" in title or "sp=sr" in title or "&sig=" in title:
+        title = _title_from_url(url)
     source = VideoSource(
         url=url,
-        video_id=str(info.get("id") or video_id_from_url(url)),
-        title=str(info.get("title") or "untitled"),
+        video_id=str(info.get("id") or video_id_from_url(url) or slugify(title))[:64],
+        title=title,
         duration=float(info.get("duration") or 0.0),
         uploader=str(info.get("uploader") or info.get("channel") or ""),
         path=path,
@@ -834,6 +987,25 @@ def _source_from_info(
     )
     (work_dir / "info.json").write_text(json.dumps(source.to_dict(), indent=2), encoding="utf-8")
     return source
+
+
+def _usable_media(path: Path | None, settings: Settings) -> bool:
+    """Does this file actually decode? A redirect served as a page does not."""
+    if path is None or not path.exists():
+        return False
+    if path.stat().st_size < 1024:
+        return False
+    duration, width, height = _ffprobe_metadata(path, settings)
+    if duration > 0.2:
+        return True
+    return path.suffix.lower() in {".m4a", ".mp3", ".aac", ".ogg", ".opus", ".wav"} and width == 0
+
+
+def _title_from_url(url: str) -> str:
+    """``…/my-clip.mp4?token=…`` → ``my-clip`` (never the token)."""
+    path = urllib.parse.urlsplit(url).path
+    stem = Path(urllib.parse.unquote(path)).stem
+    return stem or "video"
 
 
 def _downloaded_path(info: dict, work_dir: Path) -> Path | None:
@@ -868,10 +1040,11 @@ def _friendly_error(
     )
     if images_only:
         return (
-            "YouTube answered with storyboard images only — no video/audio stream. GitHub-hosted "
-            "runners hit this on their datacenter IPs even with valid cookies (measured on Ubuntu, "
-            f"Windows and macOS). Players tried: {tried}. {runtime_hint} Fixes: set YT_PROXY to a "
-            "residential proxy, or give a direct video file/link instead of a YouTube URL."
+            "YouTube answered with storyboard images only — no video/audio stream. Datacenter "
+            "IPs (GitHub runners, measured on Ubuntu, Windows and macOS) get this. Players "
+            f"tried: {tried}. {runtime_hint} What works: a direct video file URL (the run "
+            "downloads the bytes itself), YT_COOKIES from a logged-in session, or a residential "
+            "YT_PROXY."
         )
     if _is_retryable(lowered):
         if _is_format_error(lowered):
