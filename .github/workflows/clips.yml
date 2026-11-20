@@ -128,6 +128,14 @@ jobs:
             || echo "::warning::Claude Code install failed; using the direct LLM API path"
           claude --version || true
 
+      - name: Install a JS runtime for yt-dlp (YouTube challenges)
+        run: |
+          # yt-dlp only ships Deno support by default and needs a JS runtime to solve
+          # YouTube's signature challenges; Node is already on the runner as a fallback.
+          npm install -g deno || echo "::warning::deno install failed; yt-dlp will use node"
+          deno --version || true
+          node --version || true
+
       - name: Prepare YouTube cookies (optional)
         env:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}

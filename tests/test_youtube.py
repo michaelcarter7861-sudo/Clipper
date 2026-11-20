@@ -20,6 +20,7 @@ from clipper.youtube import (
     _ydl_opts,
     download,
     format_table,
+    js_runtime_status,
     list_formats,
 )
 
@@ -166,6 +167,18 @@ def test_opts_carry_proxy_and_cookies(tmp_path: Path):
     assert opts["cookiefile"] == str(cookies)
 
 
+def test_opts_hand_node_to_yt_dlp_as_a_js_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "clipper.youtube.shutil.which", lambda name: "/usr/local/bin/node" if name == "node" else None
+    )
+
+    opts = _ydl_opts(make_settings(), tmp_path)
+
+    assert "node" in opts["js_runtimes"]
+    assert "deno" in opts["js_runtimes"]  # yt-dlp's default stays available
+    assert js_runtime_status() == {"node": "/usr/local/bin/node"}
+
+
 def test_extra_args_only_override_what_the_user_asked_for():
     pytest.importorskip("yt_dlp")
 
@@ -286,6 +299,50 @@ def test_download_reports_storyboards_as_a_throttled_ip(fake_ytdlp, tmp_path: Pa
     message = str(excinfo.value)
     assert "storyboard images only" in message
     assert "YT_PROXY" in message
+
+
+def test_page_reload_errors_are_retried_not_fatal(fake_ytdlp, tmp_path: Path):
+    (tmp_path / "source.mp4").write_bytes(b"video")
+    fake_ytdlp.script = [
+        RuntimeError("ERROR: [youtube] abc123def45: The page needs to be reloaded."),
+        RuntimeError("ERROR: [youtube] abc123def45: The page needs to be reloaded."),
+        INFO,
+    ]
+
+    source = download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
+
+    assert source.video_id == "abc123def45"
+    assert len([call for call in fake_ytdlp.calls if call.get("download")]) == 3
+
+
+def test_unknown_fatal_errors_do_not_crash_the_message(fake_ytdlp, tmp_path: Path):
+    fake_ytdlp.fail_all = RuntimeError("ERROR: something unexpected broke")
+
+    with pytest.raises(DownloadError) as excinfo:
+        download(URL, tmp_path, make_settings(out_dir=tmp_path / "out"))
+
+    assert "something unexpected broke" in str(excinfo.value)
+
+
+def test_formats_report_records_the_js_runtime(fake_ytdlp, tmp_path: Path):
+    fake_ytdlp.fail_all = RuntimeError("ERROR: Requested format is not available")
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(DownloadError):
+        download(URL, tmp_path, make_settings(out_dir=out_dir))
+
+    assert "js_runtime:" in (out_dir / "formats.txt").read_text(encoding="utf-8")
+
+
+def test_storyboard_message_points_at_the_js_runtime(monkeypatch):
+    monkeypatch.setattr("clipper.youtube.shutil.which", lambda name: None)
+
+    message = _friendly_error(
+        "ERROR: Requested format is not available", [], images_only=True, clients_tried=["client tv"]
+    )
+
+    assert "No JS runtime" in message
+    assert "client tv" in message
 
 
 def test_a_failed_download_leaves_a_formats_report(fake_ytdlp, tmp_path: Path):

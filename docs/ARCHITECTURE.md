@@ -28,10 +28,16 @@ English/Hindi/Urdu. Three things keep the download from dying on an odd video:
    codecs, size.
 2. **Best available** — `format: bv*+ba/b/best` plus `format_sort`
    (`res:<max_height>`, `ext:mp4:m4a`, `codec:h264`, `br`); preferences, never filters.
-3. **Fallback ladder** — on a format error only (`_is_format_error`) the pipeline retries
-   `bv*+ba/b` → `best` → `b` (for live streams the loose order comes first, with
-   `live_from_start`). Bot-check/private/unavailable errors are fatal and friendly
-   (`_friendly_error`), so no time is wasted retrying them.
+3. **JS runtime** — `js_runtimes` always carries Deno and, when present, Node: yt-dlp needs a
+   JS runtime to solve YouTube's `nsig` challenge, and its built-in default (Deno-only) is not
+   installed on GitHub runners. Without it YouTube returns storyboards only.
+4. **Fallback ladder** — format problems *and* unusable player responses
+   (`_is_retryable`: format errors, "page needs to be reloaded", missing player response) move
+   on to the next try: default client → `android` → `tv` → `web_safari` → `ios` → `mweb` →
+   `best` → `b`, plus one cookie-free attempt. Bot-check/private/unavailable errors are fatal
+   and friendly (`_friendly_error`), so no time is wasted retrying them. Every attempt is
+   appended to `out/formats.txt` together with the raw format list and the available JS
+   runtime, so a failed run can be diagnosed from the artifact alone.
 
 Cookies come from `CLIP_COOKIES`, a proxy from `CLIP_PROXY`; power users can push raw flags
 through `YTDLP_EXTRA_ARGS`, and `_parse_extra_args` keeps only the flags that differ from an

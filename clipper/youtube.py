@@ -82,6 +82,12 @@ FORMAT_ERROR_HINTS = (
     "no video formats found",
     "requested download is not available",
 )
+RETRYABLE_HINTS = (
+    "the page needs to be reloaded",
+    "player response",
+    "nsig",
+    "some formats may be missing",
+)
 FATAL_HINTS = (
     "sign in to confirm",
     "private video",
@@ -147,9 +153,23 @@ def _is_format_error(text: str) -> bool:
     return any(hint in lowered for hint in FORMAT_ERROR_HINTS)
 
 
+def _is_retryable(text: str) -> bool:
+    """Format problems *and* unusable player responses are worth retrying."""
+    return _is_format_error(text) or any(hint in (text or "").lower() for hint in RETRYABLE_HINTS)
+
+
 def _is_fatal(text: str) -> bool:
     lowered = (text or "").lower()
     return any(hint in lowered for hint in FATAL_HINTS)
+
+
+def js_runtime_status() -> dict[str, str]:
+    """Which JS runtimes yt-dlp can use for YouTube's signature challenges.
+
+    Modern yt-dlp needs an external JS runtime; its default is Deno only, which is not
+    installed on GitHub runners, so Node is added when available.
+    """
+    return {name: path for name in ("deno", "node") if (path := shutil.which(name))}
 
 
 def _one_line(text: str, limit: int = 160) -> str:
@@ -203,6 +223,10 @@ def _ydl_opts(
         opts["proxy"] = settings.proxy
     if settings.ytdlp_extra_args:
         opts.update(_parse_extra_args(settings.ytdlp_extra_args))
+    runtimes: dict = {"deno": {"path": None}}
+    if shutil.which("node"):
+        runtimes["node"] = {"path": None}
+    opts["js_runtimes"] = runtimes
     if player_client:
         _set_player_client(opts, player_client)
     return opts
@@ -371,6 +395,7 @@ def _write_formats_report(
         f"url: {url}",
         f"time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"live_status: {live_state or 'unknown'}",
+        f"js_runtime: {js_runtime_status() or 'none found'}",
     ]
     if info:
         lines.append(f"title: {info.get('title')!r}  duration: {info.get('duration')}")
@@ -485,7 +510,7 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
             last_error = str(exc)
             reason = _one_line(last_error)
             errors.append((attempt.label, reason))
-            if not _is_format_error(last_error):
+            if not _is_retryable(last_error):
                 _write_formats_report(settings.out_dir, url, probed, errors, live_state, fatal=reason)
                 raise DownloadError(
                     _friendly_error(
@@ -493,7 +518,7 @@ def download(url: str, work_dir: Path, settings: Settings) -> VideoSource:
                         rows,
                         live=live,
                         images_only=images_only,
-                        clients_tried=[tried.label for tried, _ in errors],
+                        clients_tried=[label for label, _ in errors],
                     )
                 ) from exc
             log.warning("%s failed (%s) — trying the next attempt", attempt.label, reason)
@@ -567,25 +592,37 @@ def _friendly_error(
     clients_tried: list[str] | None = None,
 ) -> str:
     lowered = raw.lower()
-    if _is_format_error(lowered):
-        tried = ", ".join(clients_tried or ()) or "default client"
+    tried = ", ".join(clients_tried or ()) or "default client"
+    runtimes = js_runtime_status()
+    runtime_hint = (
+        f"JS runtime(s) available: {', '.join(sorted(runtimes))}."
+        if runtimes
+        else "No JS runtime (deno/node) found — yt-dlp cannot solve YouTube's challenges."
+    )
+    if _is_retryable(lowered):
         if images_only:
             return (
-                "YouTube answered with storyboard images only — no video/audio stream. "
-                "That is the signature of a throttled IP or a stale cookie session (YouTube's "
-                f"proof-of-origin check). Players tried: {tried}. Fix: set YT_PROXY to a "
-                "residential proxy, or export YT_COOKIES again from a fresh browser session."
+                "YouTube answered with storyboard images only — no video/audio stream. That is "
+                "what a missing JS runtime, a throttled IP or a stale cookie session looks like. "
+                f"Players tried: {tried}. {runtime_hint} Fix: set YT_PROXY to a residential "
+                "proxy, or export YT_COOKIES again from a fresh browser session."
             )
-        listed = ", ".join(f"{row.id}={row.ext}/{row.res}" for row in (formats or [])[:6])
-        hint = (
-            " This is a live stream, and its formats change while it runs — try again after "
-            "it ends, or use a normal video link."
-            if live
-            else " Try a different link, or set CLIP_PROXY / YT_PROXY if YouTube is throttling this IP."
-        )
+        if _is_format_error(lowered):
+            listed = ", ".join(f"{row.id}={row.ext}/{row.res}" for row in (formats or [])[:6])
+            hint = (
+                " This is a live stream, and its formats change while it runs — try again after "
+                "it ends, or use a normal video link."
+                if live
+                else " Try a different link, or set CLIP_PROXY / YT_PROXY if YouTube is throttling this IP."
+            )
+            return (
+                "YouTube did not offer a format this build can download. "
+                f"Formats it listed: {listed or 'none'}; players tried: {tried}.{hint}"
+            )
         return (
-            "YouTube did not offer a format this build can download. "
-            f"Formats it listed: {listed or 'none'}; players tried: {tried}.{hint}"
+            "YouTube's player response was unusable (signature/JS challenge), so no format "
+            f"could be opened. Players tried: {tried}. {runtime_hint} A residential proxy "
+            "(YT_PROXY) also helps when this runner's IP is throttled."
         )
     if "sign in to confirm" in lowered or "bot" in lowered and "sign in" in lowered:
         return (
